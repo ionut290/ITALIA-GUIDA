@@ -1,4 +1,4 @@
-const CACHE = "italia-guida-v4";
+const CACHE = "italia-guida-v5";
 const CORE = ["/", "/manifest.webmanifest", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, BellRing, BookOpen, Check, ChevronLeft, ChevronRight, Clock3, Compass,
+  ArrowRight, BellRing, BookOpen, Check, ChevronLeft, ChevronRight, Compass,
   ExternalLink, Globe2, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
   Play, Search, Sparkles, Square, Video, Volume2, Footprints,
 } from "lucide-react";
@@ -29,8 +29,28 @@ type Place = {
 
 type WikiInsight = { title: string; extract: string; pageUrl: string };
 
+type NearbyVideo = {
+  url: string;
+  title: string;
+  type: "video" | "youtube";
+};
+
+type NearbyImage = {
+  url: string;
+  originalUrl?: string;
+  title?: string;
+};
+
+type GeoSearchItem = { pageid: number; title: string; lat: number; lon: number; dist: number };
+type IziNearbyItem = { id: string; iziId: string; name: string; lat: number; lon: number; distance: number; category: string };
+type WikiImagesPage = { images?: Array<{ title: string }> };
+type WikiVideoPage = { videoinfo?: Array<{ url?: string }> };
+type WikiExtractPage = { extract?: string };
+
 type NearbyPlace = {
-  pageid: number;
+  pageid: number | string;
+  source: "wikipedia" | "izi";
+  iziId?: string;
   title: string;
   lat: number;
   lng: number;
@@ -38,6 +58,11 @@ type NearbyPlace = {
   extract: string;
   pageUrl: string;
   thumbnail?: string;
+  category?: string;
+  audioUrl?: string;
+  images?: NearbyImage[];
+  videos?: NearbyVideo[];
+  attribution?: string;
 };
 
 const commonsFile = (name: string) =>
@@ -172,6 +197,17 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function youtubeVideoId(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === "youtu.be") return url.pathname.slice(1).split("/")[0];
+    if (url.pathname.startsWith("/embed/")) return url.pathname.split("/")[2];
+    return url.searchParams.get("v");
+  } catch {
+    return null;
+  }
+}
+
 function curatedAiFor(title: string) {
   const normalized = title.toLowerCase();
   const match = places.find((place) =>
@@ -201,21 +237,26 @@ export default function Home() {
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState("");
   const [autoGuideActive, setAutoGuideActive] = useState(false);
-  const [nearbyVideo, setNearbyVideo] = useState<string | null>(null);
+  const [nearbyVideo, setNearbyVideo] = useState<NearbyVideo | null>(null);
   const [nearbyVideoLoading, setNearbyVideoLoading] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const lastSearchRef = useRef<{ lat: number; lng: number } | null>(null);
-  const announcedRef = useRef<Set<number>>(new Set());
+  const announcedRef = useRef<Set<number | string>>(new Set());
+  const speechRunRef = useRef(0);
 
   useEffect(() => () => {
+    speechRunRef.current += 1;
     window.speechSynthesis?.cancel();
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
   }, []);
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
   useEffect(() => {
-    setPhotoIndex(0);
-    setWikiInsight(null);
-    setWikiError("");
+    const frame = window.requestAnimationFrame(() => {
+      setPhotoIndex(0);
+      setWikiInsight(null);
+      setWikiError("");
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [selected?.id]);
   useEffect(() => {
     if (!selected || speakingId !== selected.id || selected.photos.length < 2) return;
@@ -237,16 +278,41 @@ export default function Home() {
   const activeTourPlaces = tourPlaceIds[activeTourId].map((id) => places.find((place) => place.id === id)!);
   const activePlace = activeTourPlaces[currentStop];
 
-  function speak(place: Place) {
+  function playSpeech(id: string, title: string, text: string, rate: number) {
     if (!("speechSynthesis" in window)) return;
-    if (speakingId === place.id) { window.speechSynthesis.cancel(); setSpeakingId(null); return; }
+    if (speakingId === id) {
+      speechRunRef.current += 1;
+      window.speechSynthesis.cancel();
+      setSpeakingId(null);
+      return;
+    }
+    speechRunRef.current += 1;
+    const run = speechRunRef.current;
     window.speechSynthesis.cancel();
+    const chunks = (`${title}. ${text}`.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g) ?? [text]).reduce<string[]>((result, sentence) => {
+      const last = result.at(-1);
+      if (last && `${last} ${sentence}`.length <= 230) result[result.length - 1] = `${last} ${sentence}`.trim();
+      else result.push(sentence.trim());
+      return result;
+    }, []);
+    const speakChunk = (index: number) => {
+      if (run !== speechRunRef.current) return;
+      if (index >= chunks.length) { setSpeakingId(null); return; }
+      const utterance = new SpeechSynthesisUtterance(chunks[index]);
+      utterance.lang = "it-IT";
+      utterance.rate = rate;
+      utterance.onend = () => speakChunk(index + 1);
+      utterance.onerror = () => { if (run === speechRunRef.current) setSpeakingId(null); };
+      window.speechSynthesis.speak(utterance);
+    };
+    setSpeakingId(id);
+    speakChunk(0);
+  }
+
+  function speak(place: Place) {
     setSelected(place);
     setPhotoIndex(0);
-    const utterance = new SpeechSynthesisUtterance(`${place.name}. ${place.narration}`);
-    utterance.lang = "it-IT"; utterance.rate = 0.93;
-    utterance.onend = () => setSpeakingId(null); utterance.onerror = () => setSpeakingId(null);
-    setSpeakingId(place.id); window.speechSynthesis.speak(utterance);
+    playSpeech(place.id, place.name, place.narration, 0.93);
   }
 
   async function loadWikiInsight(place: Place) {
@@ -272,6 +338,9 @@ export default function Home() {
     setNearbyLoading(true);
     setNearbyError("");
     try {
+      const iziRequest = fetch(`/.netlify/functions/izi-guide?action=nearby&lat=${lat}&lon=${lng}&radius=10000`)
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null);
       const geoUrl = new URL("https://it.wikipedia.org/w/api.php");
       geoUrl.search = new URLSearchParams({
         action: "query", list: "geosearch", gscoord: `${lat}|${lng}`,
@@ -280,13 +349,14 @@ export default function Home() {
       const response = await fetch(geoUrl);
       if (!response.ok) throw new Error("Ricerca non disponibile");
       const data = await response.json();
-      const nearby = data.query?.geosearch ?? [];
-      const detailed: NearbyPlace[] = await Promise.all(nearby.slice(0, 12).map(async (item: any) => {
+      const nearby = (data.query?.geosearch ?? []) as GeoSearchItem[];
+      const detailed: NearbyPlace[] = await Promise.all(nearby.slice(0, 12).map(async (item) => {
         try {
           const summaryResponse = await fetch(`https://it.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(item.title.replaceAll(" ", "_"))}`);
           const summary = summaryResponse.ok ? await summaryResponse.json() : {};
           return {
             pageid: item.pageid,
+            source: "wikipedia" as const,
             title: summary.title ?? item.title,
             lat: item.lat,
             lng: item.lon,
@@ -297,20 +367,39 @@ export default function Home() {
           };
         } catch {
           return {
-            pageid: item.pageid, title: item.title, lat: item.lat, lng: item.lon,
+            pageid: item.pageid, source: "wikipedia" as const, title: item.title, lat: item.lat, lng: item.lon,
             distance: item.dist, extract: "Apri la scheda per conoscere questo luogo.",
             pageUrl: `https://it.wikipedia.org/wiki/${encodeURIComponent(item.title.replaceAll(" ", "_"))}`,
           };
         }
       }));
-      setNearbyPlaces(detailed);
-      const closest = detailed[0];
+      const iziData = await iziRequest as { items?: IziNearbyItem[] } | null;
+      const iziPlaces: NearbyPlace[] = Array.isArray(iziData?.items) ? iziData.items.map((item) => ({
+        pageid: item.id,
+        source: "izi" as const,
+        iziId: item.iziId,
+        title: item.name,
+        lat: item.lat,
+        lng: item.lon,
+        distance: Number.isFinite(item.distance) ? item.distance : distanceKm(lat, lng, item.lat, item.lon) * 1000,
+        category: item.category,
+        extract: "Audioguida originale e contenuti multimediali disponibili per questo luogo.",
+        pageUrl: "https://izi.travel/it",
+      })) : [];
+      const combined = [...iziPlaces, ...detailed]
+        .filter((place, index, all) => all.findIndex((candidate) =>
+          candidate.title.localeCompare(place.title, "it", { sensitivity: "base" }) === 0 &&
+          distanceKm(candidate.lat, candidate.lng, place.lat, place.lng) < 0.08,
+        ) === index)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 20);
+      setNearbyPlaces(combined);
+      const closest = combined[0];
       if (closest && closest.distance <= 300 && !announcedRef.current.has(closest.pageid)) {
         announcedRef.current.add(closest.pageid);
-        setSelectedNearby(closest);
-        void loadNearbyVideo(closest.title);
+        void openNearby(closest);
       }
-      return detailed;
+      return combined;
     } catch {
       setNearbyError("Non riesco a caricare i luoghi vicini. Controlla la connessione e riprova.");
       return [];
@@ -319,23 +408,37 @@ export default function Home() {
     }
   }
 
-  async function loadNearbyVideo(title: string) {
+  async function loadNearbyVideo(title: string, preferred: NearbyVideo[] = []) {
     setNearbyVideo(null);
     setNearbyVideoLoading(true);
     try {
+      if (preferred.length > 0) {
+        setNearbyVideo(preferred[0]);
+        return;
+      }
       const mediaUrl = new URL("https://it.wikipedia.org/w/api.php");
       mediaUrl.search = new URLSearchParams({ action: "query", prop: "images", titles: title, imlimit: "50", format: "json", origin: "*" }).toString();
       const mediaResponse = await fetch(mediaUrl);
       const mediaData = await mediaResponse.json();
-      const page = Object.values(mediaData.query?.pages ?? {})[0] as any;
-      const videoTitle = page?.images?.map((image: any) => image.title).find((name: string) => /\.(webm|ogv|ogg)$/i.test(name));
-      if (!videoTitle) return;
-      const videoUrl = new URL("https://commons.wikimedia.org/w/api.php");
-      videoUrl.search = new URLSearchParams({ action: "query", prop: "videoinfo", titles: videoTitle, viprop: "url|mime", format: "json", origin: "*" }).toString();
-      const videoResponse = await fetch(videoUrl);
-      const videoData = await videoResponse.json();
-      const videoPage = Object.values(videoData.query?.pages ?? {})[0] as any;
-      setNearbyVideo(videoPage?.videoinfo?.[0]?.url ?? null);
+      const page = Object.values(mediaData.query?.pages ?? {})[0] as WikiImagesPage | undefined;
+      const videoTitle = page?.images?.map((image) => image.title).find((name) => /\.(webm|ogv|ogg)$/i.test(name));
+      if (videoTitle) {
+        const videoUrl = new URL("https://commons.wikimedia.org/w/api.php");
+        videoUrl.search = new URLSearchParams({ action: "query", prop: "videoinfo", titles: videoTitle, viprop: "url|mime", format: "json", origin: "*" }).toString();
+        const videoResponse = await fetch(videoUrl);
+        const videoData = await videoResponse.json();
+        const videoPage = Object.values(videoData.query?.pages ?? {})[0] as WikiVideoPage | undefined;
+        const commonsUrl = videoPage?.videoinfo?.[0]?.url;
+        if (commonsUrl) {
+          setNearbyVideo({ type: "video", url: commonsUrl, title });
+          return;
+        }
+      }
+      const youtubeResponse = await fetch(`/.netlify/functions/youtube-search?q=${encodeURIComponent(title)}`);
+      if (youtubeResponse.ok) {
+        const youtubeData = await youtubeResponse.json();
+        if (youtubeData.configured && youtubeData.items?.[0]) setNearbyVideo(youtubeData.items[0]);
+      }
     } catch {
       setNearbyVideo(null);
     } finally {
@@ -343,23 +446,53 @@ export default function Home() {
     }
   }
 
-  function openNearby(place: NearbyPlace) {
+  async function openNearby(place: NearbyPlace) {
     setSelectedNearby(place);
-    void loadNearbyVideo(place.title);
+    if (place.source === "izi" && place.iziId) {
+      setNearbyVideoLoading(true);
+      try {
+        const response = await fetch(`/.netlify/functions/izi-guide?action=detail&id=${encodeURIComponent(place.iziId)}`);
+        if (!response.ok) throw new Error("Audioguida non disponibile");
+        const data = await response.json();
+        if (!data.item) throw new Error("Audioguida non disponibile");
+        const enriched: NearbyPlace = {
+          ...place,
+          extract: data.item.description || place.extract,
+          thumbnail: data.item.images?.[0]?.url || place.thumbnail,
+          images: data.item.images,
+          audioUrl: data.item.audioUrl,
+          videos: data.item.videos,
+          pageUrl: data.item.sourceUrl || place.pageUrl,
+          attribution: data.item.attribution,
+        };
+        setSelectedNearby(enriched);
+        await loadNearbyVideo(enriched.title, enriched.videos);
+        return;
+      } catch {
+        await loadNearbyVideo(place.title);
+        return;
+      }
+    }
+
+    try {
+      const detailUrl = new URL("https://it.wikipedia.org/w/api.php");
+      detailUrl.search = new URLSearchParams({ action: "query", prop: "extracts", explaintext: "1", redirects: "1", titles: place.title, format: "json", origin: "*" }).toString();
+      const detailResponse = await fetch(detailUrl);
+      const detailData = detailResponse.ok ? await detailResponse.json() : null;
+      const page = Object.values(detailData?.query?.pages ?? {})[0] as WikiExtractPage | undefined;
+      if (page?.extract) {
+        const enriched = { ...place, extract: String(page.extract).slice(0, 16000) };
+        setSelectedNearby(enriched);
+      }
+    } catch {
+      // La sintesi breve già caricata resta disponibile.
+    }
+    await loadNearbyVideo(place.title);
   }
 
   function speakNearby(place: NearbyPlace) {
-    if (!("speechSynthesis" in window)) return;
     const id = `nearby-${place.pageid}`;
-    if (speakingId === id) { window.speechSynthesis.cancel(); setSpeakingId(null); return; }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(`${place.title}. ${place.extract}`);
-    utterance.lang = "it-IT";
-    utterance.rate = 0.91;
-    utterance.onend = () => setSpeakingId(null);
-    utterance.onerror = () => setSpeakingId(null);
-    setSpeakingId(id);
-    window.speechSynthesis.speak(utterance);
+    playSpeech(id, place.title, place.extract, 0.91);
   }
 
   function toggleAutoGuide() {
@@ -417,6 +550,7 @@ export default function Home() {
   const mapPlace = selected ?? places.find((place) => place.id === mapPlaceId) ?? places[1];
   const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${mapPlace.lng - 0.009}%2C${mapPlace.lat - 0.006}%2C${mapPlace.lng + 0.009}%2C${mapPlace.lat + 0.006}&layer=mapnik&marker=${mapPlace.lat}%2C${mapPlace.lng}`;
   const nearbyAiPhoto = selectedNearby ? curatedAiFor(selectedNearby.title) : null;
+  const nearbyYoutubeId = nearbyVideo?.type === "youtube" ? youtubeVideoId(nearbyVideo.url) : null;
 
   return (
     <main className="app-shell">
@@ -439,8 +573,8 @@ export default function Home() {
             <div className="hero-photo" role="img" aria-label="Piazza Maggiore, uno dei luoghi raccontati dalla guida italiana"><div className="photo-credit">Foto: Zairon · Wikimedia Commons · CC0</div></div>
             <div className="hero-copy">
               <p className="eyebrow"><MapPin size={15} /> Tutta Italia, passo dopo passo</p>
-              <h1>L'Italia ti parla quando le passi accanto.</h1>
-              <p>Attiva il GPS: l'app trova i luoghi culturali vicini, apre la scheda e prepara audio, fotografia e video quando disponibile.</p>
+              <h1>L&apos;Italia ti parla quando le passi accanto.</h1>
+              <p>Attiva il GPS: l&apos;app trova i luoghi culturali vicini, apre la scheda e prepara audio, fotografia e video quando disponibile.</p>
               <div className="hero-actions">
                 <Button size="lg" onClick={toggleAutoGuide} className="primary-action">{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Attiva guida automatica</>}</Button>
                 <Button size="lg" variant="outline" onClick={locateUser}><LocateFixed /> Cerca una volta</Button>
@@ -456,14 +590,14 @@ export default function Home() {
             </div>
             {nearbyError && <div className="nearby-error">{nearbyError}</div>}
             {!nearbyLoading && nearbyPlaces.length === 0 && !nearbyError && (
-              <div className="nearby-empty"><LocateFixed /><div><strong>Attiva la posizione</strong><span>Quando ti avvicini a un punto culturale, la sua guida comparirà automaticamente. Il rilevamento funziona mentre l'app è aperta.</span></div></div>
+              <div className="nearby-empty"><LocateFixed /><div><strong>Attiva la posizione</strong><span>Quando ti avvicini a un punto culturale, la sua guida comparirà automaticamente. Il rilevamento funziona mentre l&apos;app è aperta.</span></div></div>
             )}
             {nearbyPlaces.length > 0 && (
               <div className="nearby-grid">
                 {nearbyPlaces.map((place) => (
-                  <button key={place.pageid} className={`nearby-card ${place.distance <= 300 ? "very-close" : ""}`} onClick={() => openNearby(place)}>
+                  <button key={place.pageid} className={`nearby-card ${place.distance <= 300 ? "very-close" : ""}`} onClick={() => void openNearby(place)}>
                     {place.thumbnail ? <img src={place.thumbnail} alt="" referrerPolicy="no-referrer" /> : <span className="nearby-placeholder"><MapPin /></span>}
-                    <span className="nearby-copy"><small>{place.distance < 1000 ? `${Math.round(place.distance)} m` : `${(place.distance / 1000).toFixed(1)} km`}{place.distance <= 300 ? " · Sei vicino" : ""}</small><strong>{place.title}</strong><span>{place.extract}</span></span>
+                    <span className="nearby-copy"><small>{place.source === "izi" ? "🎧 izi.TRAVEL · " : ""}{place.distance < 1000 ? `${Math.round(place.distance)} m` : `${(place.distance / 1000).toFixed(1)} km`}{place.distance <= 300 ? " · Sei vicino" : ""}</small><strong>{place.title}</strong><span>{place.category || place.extract}</span></span>
                     <ChevronRight />
                   </button>
                 ))}
@@ -554,26 +688,31 @@ export default function Home() {
         </TabsList>
       </Tabs>
 
-      <Sheet open={Boolean(selectedNearby)} onOpenChange={(open) => { if (!open) { setSelectedNearby(null); setNearbyVideo(null); } }}>
+      <Sheet open={Boolean(selectedNearby)} onOpenChange={(open) => { if (!open) { speechRunRef.current += 1; window.speechSynthesis?.cancel(); setSpeakingId(null); setSelectedNearby(null); setNearbyVideo(null); } }}>
         <SheetContent side="right" className="place-sheet nearby-sheet">
           {selectedNearby && <>
             <SheetHeader><p className="eyebrow">Guida rilevata vicino a te</p><SheetTitle>{selectedNearby.title}</SheetTitle><SheetDescription>{selectedNearby.distance < 1000 ? `${Math.round(selectedNearby.distance)} metri da te` : `${(selectedNearby.distance / 1000).toFixed(1)} km da te`}</SheetDescription></SheetHeader>
             <div className="sheet-scroll">
-              {selectedNearby.thumbnail ? (
-                <div className="guide-gallery"><img src={selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>Fonte: Wikipedia / Wikimedia Commons</small></div></div>
+              {(selectedNearby.images?.[0]?.url || selectedNearby.thumbnail) ? (
+                <div className="guide-gallery"><img src={selectedNearby.images?.[0]?.url || selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>{selectedNearby.source === "izi" ? "Fonte: izi.TRAVEL" : "Fonte: Wikipedia / Wikimedia Commons"}</small></div></div>
               ) : (
                 <div className="nearby-image-empty"><MapPin /><span>Fotografia non disponibile per questo luogo</span></div>
               )}
-              <div className="audio-box"><Headphones /><div><strong>Audioguida in italiano</strong><span>Testo culturale letto dal telefono</span></div><Button size="icon-lg" onClick={() => speakNearby(selectedNearby)} aria-label={speakingId === `nearby-${selectedNearby.pageid}` ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === `nearby-${selectedNearby.pageid}` ? <Square /> : <Play />}</Button></div>
+              {selectedNearby.audioUrl ? (
+                <div className="original-audio"><div className="media-heading"><Headphones /><div><strong>Audioguida originale</strong><span>Contenuto fornito da izi.TRAVEL</span></div></div><audio src={selectedNearby.audioUrl} controls preload="none" /></div>
+              ) : (
+                <div className="audio-box"><Headphones /><div><strong>Audioguida in italiano</strong><span>Testo culturale letto dal telefono</span></div><Button size="icon-lg" onClick={() => speakNearby(selectedNearby)} aria-label={speakingId === `nearby-${selectedNearby.pageid}` ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === `nearby-${selectedNearby.pageid}` ? <Square /> : <Play />}</Button></div>
+              )}
               <article><h3>Scopri il luogo</h3><p>{selectedNearby.extract}</p></article>
               {nearbyAiPhoto && <div className="guide-gallery ai-nearby"><img src={nearbyAiPhoto.src} alt={nearbyAiPhoto.alt} /><div className="image-kind ai">Ricostruzione AI</div><div className="image-caption"><span>{nearbyAiPhoto.alt}</span><small>{nearbyAiPhoto.credit}</small></div></div>}
               <section className="video-card" aria-label="Video del luogo">
                 <div className="media-heading"><Video /><div><strong>Video del luogo</strong><span>Wikimedia Commons o ricerca esterna</span></div></div>
                 {nearbyVideoLoading && <p>Ricerca di un video libero…</p>}
-                {nearbyVideo && <div className="video-frame"><video src={nearbyVideo} controls playsInline preload="metadata" /></div>}
+                {nearbyVideo?.type === "video" && <div className="video-frame"><video src={nearbyVideo.url} controls playsInline preload="metadata" /></div>}
+                {nearbyVideo?.type === "youtube" && nearbyYoutubeId && <div className="video-frame"><iframe src={`https://www.youtube-nocookie.com/embed/${nearbyYoutubeId}`} title={nearbyVideo.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>}
                 {!nearbyVideoLoading && !nearbyVideo && <Button variant="outline" asChild><a href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${selectedNearby.title} guida turistica`)}`} target="_blank" rel="noreferrer">Cerca video su YouTube <ExternalLink /></a></Button>}
               </section>
-              <div className="source-actions"><a href={selectedNearby.pageUrl} target="_blank" rel="noreferrer">Leggi la fonte completa <ExternalLink /></a><span>Le ricostruzioni generate con AI sono sempre indicate.</span></div>
+              <div className="source-actions"><a href={selectedNearby.pageUrl} target="_blank" rel="noreferrer">Leggi la fonte completa <ExternalLink /></a><span>{selectedNearby.attribution || "Testo: Wikipedia · media: Wikimedia Commons. Le ricostruzioni generate con AI sono sempre indicate."}</span></div>
             </div>
             <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selectedNearby.lat},${selectedNearby.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button></SheetFooter>
           </>}
