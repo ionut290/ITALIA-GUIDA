@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
+import { PoiMultimediaEnhancer } from "@/components/poi-multimedia-enhancer";
 
 export const metadata: Metadata = {
   title: "Italia Guida — I luoghi ti parlano",
@@ -21,7 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it">
-      <body>{children}</body>
+      <body>
+        {children}
+        <PoiMultimediaEnhancer />
+      </body>
     </html>
   );
 }
