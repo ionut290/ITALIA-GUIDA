@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { PoiMap, type PoiMapPoint } from "@/components/poi-map";
+import { PoiMap, type PoiMapPoint, type PoiMapViewport } from "@/components/poi-map";
 
 type PhotoAsset = {
   src: string;
@@ -50,7 +50,7 @@ type WikiExtractPage = { extract?: string };
 
 type NearbyPlace = {
   pageid: number | string;
-  source: "wikipedia" | "izi";
+  source: "wikipedia" | "izi" | "openstreetmap";
   iziId?: string;
   title: string;
   lat: number;
@@ -64,6 +64,16 @@ type NearbyPlace = {
   images?: NearbyImage[];
   videos?: NearbyVideo[];
   attribution?: string;
+};
+
+type OsmPoiItem = {
+  id: string;
+  name: string;
+  category: string;
+  lat: number;
+  lng: number;
+  wikipediaTitle?: string;
+  sourceUrl: string;
 };
 
 const commonsFile = (name: string) =>
@@ -240,8 +250,14 @@ export default function Home() {
   const [autoGuideActive, setAutoGuideActive] = useState(false);
   const [nearbyVideo, setNearbyVideo] = useState<NearbyVideo | null>(null);
   const [nearbyVideoLoading, setNearbyVideoLoading] = useState(false);
+  const [mapAreaPlaces, setMapAreaPlaces] = useState<NearbyPlace[]>([]);
+  const [mapViewport, setMapViewport] = useState<PoiMapViewport | null>(null);
+  const [mapAreaLoading, setMapAreaLoading] = useState(false);
+  const [mapAreaStatus, setMapAreaStatus] = useState("Ingrandisci una zona per caricare i luoghi di tutta Italia");
   const watchIdRef = useRef<number | null>(null);
   const lastSearchRef = useRef<{ lat: number; lng: number } | null>(null);
+  const lastMapAreaKeyRef = useRef("");
+  const mapAreaRequestRef = useRef<AbortController | null>(null);
   const announcedRef = useRef<Set<number | string>>(new Set());
   const speechRunRef = useRef(0);
 
@@ -249,6 +265,7 @@ export default function Home() {
     speechRunRef.current += 1;
     window.speechSynthesis?.cancel();
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    mapAreaRequestRef.current?.abort();
   }, []);
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
   useEffect(() => {
@@ -537,6 +554,63 @@ export default function Home() {
     );
   }
 
+  async function loadMapArea(viewport: PoiMapViewport) {
+    setMapViewport(viewport);
+    const intersectsItaly = viewport.north >= 35.2 && viewport.south <= 47.2 && viewport.east >= 6.3 && viewport.west <= 18.9;
+    if (!intersectsItaly) {
+      mapAreaRequestRef.current?.abort();
+      setMapAreaPlaces([]);
+      setMapAreaLoading(false);
+      setMapAreaStatus("Sposta la mappa sull’Italia");
+      return;
+    }
+    if (viewport.zoom < 10) {
+      mapAreaRequestRef.current?.abort();
+      setMapAreaPlaces([]);
+      setMapAreaLoading(false);
+      setMapAreaStatus("Ingrandisci la mappa per visualizzare tutti i pin della zona");
+      return;
+    }
+
+    const key = [viewport.south, viewport.west, viewport.north, viewport.east]
+      .map((value) => value.toFixed(3)).join(":");
+    if (key === lastMapAreaKeyRef.current) return;
+    lastMapAreaKeyRef.current = key;
+    mapAreaRequestRef.current?.abort();
+    const controller = new AbortController();
+    mapAreaRequestRef.current = controller;
+    setMapAreaLoading(true);
+    setMapAreaStatus("Carico monumenti e punti di interesse…");
+
+    try {
+      const query = new URLSearchParams({
+        south: String(viewport.south), west: String(viewport.west), north: String(viewport.north), east: String(viewport.east), zoom: String(viewport.zoom),
+      });
+      const response = await fetch(`/.netlify/functions/osm-pois?${query}`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Ricerca non disponibile");
+      const data = await response.json() as { items?: OsmPoiItem[]; truncated?: boolean };
+      const items = Array.isArray(data.items) ? data.items : [];
+      setMapAreaPlaces(items.map((item) => ({
+        pageid: item.id,
+        source: "openstreetmap" as const,
+        title: item.name,
+        lat: item.lat,
+        lng: item.lng,
+        distance: -1,
+        category: item.category,
+        extract: "Punto di interesse presente nella banca dati OpenStreetMap. Apri la scheda per cercare descrizione, audio, fotografie e video disponibili.",
+        pageUrl: item.sourceUrl,
+      })));
+      setMapAreaStatus(`${items.length} luoghi visibili${data.truncated ? " · aumenta lo zoom per vederli tutti" : ""}`);
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return;
+      setMapAreaPlaces([]);
+      setMapAreaStatus("Impossibile caricare i pin: riprova spostando la mappa");
+    } finally {
+      if (mapAreaRequestRef.current === controller) setMapAreaLoading(false);
+    }
+  }
+
   function startTour(tourId = "essential") {
     setActiveTourId(tourId);
     setVisited([]);
@@ -549,10 +623,13 @@ export default function Home() {
   }
 
   const mapDisplayPoints = useMemo(() => {
+    const isVisible = (lat: number, lng: number) => !mapViewport || (
+      lat >= mapViewport.south && lat <= mapViewport.north && lng >= mapViewport.west && lng <= mapViewport.east
+    );
     const curated = places
-      .filter((place) => !userPosition || nearbyPlaces.length === 0 || distanceKm(userPosition.lat, userPosition.lng, place.lat, place.lng) <= 15)
+      .filter((place) => isVisible(place.lat, place.lng))
       .map<PoiMapPoint>((place) => ({ id: place.id, name: place.name, category: place.category, lat: place.lat, lng: place.lng, source: "curated" }));
-    const dynamic = nearbyPlaces.map<PoiMapPoint>((place) => ({
+    const dynamic = [...nearbyPlaces, ...mapAreaPlaces].filter((place) => isVisible(place.lat, place.lng)).map<PoiMapPoint>((place) => ({
       id: `nearby-${place.pageid}`,
       name: place.title,
       category: place.category || "Punto di interesse",
@@ -564,8 +641,8 @@ export default function Home() {
     return ordered.filter((point, index, all) => all.findIndex((candidate) =>
       candidate.name.localeCompare(point.name, "it", { sensitivity: "base" }) === 0 &&
       distanceKm(candidate.lat, candidate.lng, point.lat, point.lng) < 0.08,
-    ) === index).slice(0, 30);
-  }, [nearbyPlaces, userPosition]);
+    ) === index).slice(0, 320);
+  }, [mapAreaPlaces, mapViewport, nearbyPlaces]);
   const mapPlace = mapDisplayPoints.find((place) => place.id === mapPlaceId) ?? mapDisplayPoints[0];
   const nearbyAiPhoto = selectedNearby ? curatedAiFor(selectedNearby.title) : null;
   const nearbyYoutubeId = nearbyVideo?.type === "youtube" ? youtubeVideoId(nearbyVideo.url) : null;
@@ -577,7 +654,7 @@ export default function Home() {
       setSelected(curated);
       return;
     }
-    const nearby = nearbyPlaces.find((place) => `nearby-${place.pageid}` === id);
+    const nearby = [...nearbyPlaces, ...mapAreaPlaces].find((place) => `nearby-${place.pageid}` === id);
     if (nearby) void openNearby(nearby);
   }
 
@@ -703,13 +780,14 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="mappa" className="content-area map-content">
-          <section className="map-header"><div><p className="eyebrow"><Map /> Monumenti e punti di interesse</p><h1>Mappa turistica</h1><p>Tutti i luoghi sono indicati sulla mappa. Attiva il GPS per vedere quelli intorno a te.</p></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></section>
+          <section className="map-header"><div><p className="eyebrow"><Map /> Monumenti e punti di interesse</p><h1>Mappa turistica d’Italia</h1><p>Sposta e ingrandisci la mappa: i pin vengono caricati automaticamente in ogni zona italiana.</p></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></section>
           <section className="map-layout">
             <div className="map-frame">
-              <PoiMap points={mapDisplayPoints} selectedId={mapPlace?.id} userPosition={userPosition} onSelect={selectMapPoint} />
+              <PoiMap points={mapDisplayPoints} selectedId={mapPlace?.id} userPosition={userPosition} onSelect={selectMapPoint} onViewportChange={(viewport) => void loadMapArea(viewport)} />
+              <div className={`map-load-status ${mapAreaLoading ? "loading" : ""}`}>{mapAreaStatus}</div>
               {mapPlace && <div className="map-caption"><MapPin /><span><small>Luogo selezionato</small><strong>{mapPlace.name}</strong></span><Button size="sm" asChild><a href={`https://www.google.com/maps/dir/?api=1&destination=${mapPlace.lat},${mapPlace.lng}`} target="_blank" rel="noreferrer">Naviga <ExternalLink /></a></Button></div>}
             </div>
-            <div className="map-places">{mapDisplayPoints.map((place, index) => <button key={place.id} className={mapPlace?.id === place.id ? "selected" : ""} onClick={() => selectMapPoint(place.id)}><span>{index + 1}</span><div><small>{place.source === "izi" ? `🎧 ${place.category}` : place.category}</small><strong>{place.name}</strong></div><ChevronRight /></button>)}</div>
+            <div className="map-places">{mapDisplayPoints.map((place, index) => <button key={place.id} className={mapPlace?.id === place.id ? "selected" : ""} onClick={() => selectMapPoint(place.id)}><span>{index + 1}</span><div><small>{place.source === "izi" ? `🎧 ${place.category}` : place.source === "openstreetmap" ? `${place.category} · OSM` : place.category}</small><strong>{place.name}</strong></div><ChevronRight /></button>)}</div>
           </section>
         </TabsContent>
 
@@ -723,10 +801,10 @@ export default function Home() {
       <Sheet open={Boolean(selectedNearby)} onOpenChange={(open) => { if (!open) { speechRunRef.current += 1; window.speechSynthesis?.cancel(); setSpeakingId(null); setSelectedNearby(null); setNearbyVideo(null); } }}>
         <SheetContent side="right" className="place-sheet nearby-sheet">
           {selectedNearby && <>
-            <SheetHeader><p className="eyebrow">Guida rilevata vicino a te</p><SheetTitle>{selectedNearby.title}</SheetTitle><SheetDescription>{selectedNearby.distance < 1000 ? `${Math.round(selectedNearby.distance)} metri da te` : `${(selectedNearby.distance / 1000).toFixed(1)} km da te`}</SheetDescription></SheetHeader>
+            <SheetHeader><p className="eyebrow">{selectedNearby.source === "openstreetmap" ? "Punto di interesse sulla mappa" : "Guida rilevata vicino a te"}</p><SheetTitle>{selectedNearby.title}</SheetTitle><SheetDescription>{selectedNearby.source === "openstreetmap" ? `${selectedNearby.category || "Luogo turistico"} · Italia` : selectedNearby.distance < 1000 ? `${Math.round(selectedNearby.distance)} metri da te` : `${(selectedNearby.distance / 1000).toFixed(1)} km da te`}</SheetDescription></SheetHeader>
             <div className="sheet-scroll">
               {(selectedNearby.images?.[0]?.url || selectedNearby.thumbnail) ? (
-                <div className="guide-gallery"><img src={selectedNearby.images?.[0]?.url || selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>{selectedNearby.source === "izi" ? "Fonte: izi.TRAVEL" : "Fonte: Wikipedia / Wikimedia Commons"}</small></div></div>
+                <div className="guide-gallery"><img src={selectedNearby.images?.[0]?.url || selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>{selectedNearby.source === "izi" ? "Fonte: izi.TRAVEL" : selectedNearby.source === "openstreetmap" ? "Fonte: OpenStreetMap / Wikimedia" : "Fonte: Wikipedia / Wikimedia Commons"}</small></div></div>
               ) : (
                 <div className="nearby-image-empty"><MapPin /><span>Fotografia non disponibile per questo luogo</span></div>
               )}

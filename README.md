@@ -7,7 +7,7 @@ Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Itali
 - rilevamento GPS mentre l'app è aperta;
 - ricerca dei punti culturali entro 10 km;
 - apertura automatica della scheda entro 300 metri;
-- mappa Leaflet con tutti i monumenti, i POI vicini e la posizione GPS;
+- mappa Leaflet nazionale con caricamento automatico dei monumenti e POI OpenStreetMap nell’area visibile, oltre alla posizione GPS;
 - audioguida italiana, fotografie, video e navigazione;
 - audioguide originali izi.TRAVEL quando disponibili;
 - video Wikimedia e YouTube incorporati quando disponibili;

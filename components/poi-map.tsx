@@ -9,7 +9,15 @@ export type PoiMapPoint = {
   category: string;
   lat: number;
   lng: number;
-  source: "curated" | "wikipedia" | "izi";
+  source: "curated" | "wikipedia" | "izi" | "openstreetmap";
+};
+
+export type PoiMapViewport = {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+  zoom: number;
 };
 
 type PoiMapProps = {
@@ -17,20 +25,28 @@ type PoiMapProps = {
   selectedId?: string;
   userPosition: { lat: number; lng: number } | null;
   onSelect: (id: string) => void;
+  onViewportChange?: (viewport: PoiMapViewport) => void;
 };
 
-export function PoiMap({ points, selectedId, userPosition, onSelect }: PoiMapProps) {
+export function PoiMap({ points, selectedId, userPosition, onSelect, onViewportChange }: PoiMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const poiLayerRef = useRef<LayerGroup | null>(null);
   const positionLayerRef = useRef<LayerGroup | null>(null);
   const initialFitRef = useRef(false);
   const previousSelectionRef = useRef<string | undefined>(undefined);
+  const previousUserPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const onSelectRef = useRef(onSelect);
+  const onViewportChangeRef = useRef(onViewportChange);
+  const viewportTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  useEffect(() => {
+    onViewportChangeRef.current = onViewportChange;
+  }, [onViewportChange]);
 
   useEffect(() => {
     let active = true;
@@ -49,7 +65,22 @@ export function PoiMap({ points, selectedId, userPosition, onSelect }: PoiMapPro
         }).addTo(mapRef.current);
         poiLayerRef.current = L.layerGroup().addTo(mapRef.current);
         positionLayerRef.current = L.layerGroup().addTo(mapRef.current);
-        window.setTimeout(() => mapRef.current?.invalidateSize(), 0);
+        const reportViewport = () => {
+          if (viewportTimerRef.current !== null) window.clearTimeout(viewportTimerRef.current);
+          viewportTimerRef.current = window.setTimeout(() => {
+            const currentMap = mapRef.current;
+            if (!currentMap || !onViewportChangeRef.current) return;
+            const bounds = currentMap.getBounds();
+            onViewportChangeRef.current({
+              south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast(), zoom: currentMap.getZoom(),
+            });
+          }, 450);
+        };
+        mapRef.current.on("moveend", reportViewport);
+        window.setTimeout(() => {
+          mapRef.current?.invalidateSize();
+          reportViewport();
+        }, 0);
       }
 
       const map = mapRef.current;
@@ -64,7 +95,7 @@ export function PoiMap({ points, selectedId, userPosition, onSelect }: PoiMapPro
         const selected = point.id === selectedId;
         const markerIcon = L.divIcon({
           className: "poi-map-icon-shell",
-          html: `<span class="poi-map-icon ${point.source === "izi" ? "izi" : ""} ${selected ? "selected" : ""}"><b>${index + 1}</b></span>`,
+          html: `<span class="poi-map-icon ${point.source === "izi" ? "izi" : point.source === "openstreetmap" ? "osm" : ""} ${selected ? "selected" : ""}"><b>${index + 1}</b></span>`,
           iconSize: [38, 44],
           iconAnchor: [19, 42],
         });
@@ -101,13 +132,19 @@ export function PoiMap({ points, selectedId, userPosition, onSelect }: PoiMapPro
       } else if (selectedPoint && previousSelectionRef.current !== selectedId) {
         map.flyTo([selectedPoint.lat, selectedPoint.lng], Math.max(map.getZoom(), 16), { duration: 0.45 });
       }
+      const previousUser = previousUserPositionRef.current;
+      if (userPosition && (!previousUser || previousUser.lat !== userPosition.lat || previousUser.lng !== userPosition.lng)) {
+        map.flyTo([userPosition.lat, userPosition.lng], Math.max(map.getZoom(), 14), { duration: 0.55 });
+      }
       previousSelectionRef.current = selectedId;
+      previousUserPositionRef.current = userPosition;
     });
 
     return () => { active = false; };
   }, [points, selectedId, userPosition]);
 
   useEffect(() => () => {
+    if (viewportTimerRef.current !== null) window.clearTimeout(viewportTimerRef.current);
     mapRef.current?.remove();
     mapRef.current = null;
   }, []);

@@ -195,6 +195,7 @@ h1, h2, h3, p { margin-top: 0; }
 .poi-map-icon-shell, .user-map-icon-shell { border: 0 !important; background: transparent !important; }
 .poi-map-icon { display: grid; place-items: center; width: 36px; height: 36px; border: 3px solid #fffdf8; border-radius: 50% 50% 50% 8px; color: white; background: #9a3b2f; box-shadow: 0 6px 14px rgba(65, 35, 26, .34); transform: rotate(-45deg); font-size: 12px; font-weight: 900; }
 .poi-map-icon.izi { background: #486f5f; }
+.poi-map-icon.osm { background: #32715a; }
 .poi-map-icon.selected { outline: 4px solid rgba(232, 166, 91, .55); background: #d05a3d; transform: rotate(-45deg) scale(1.14); }
 .poi-map-icon b { transform: rotate(45deg); font-weight: 900; }
 .poi-map-tooltip { display: flex; min-width: 130px; flex-direction: column; gap: 2px; padding: 2px; }
@@ -202,6 +203,9 @@ h1, h2, h3, p { margin-top: 0; }
 .poi-map-tooltip strong { color: #38251f; font: 700 14px Georgia, serif; }
 .user-map-icon { display: grid; place-items: center; width: 24px; height: 24px; border: 4px solid white; border-radius: 50%; background: #287bd4; box-shadow: 0 0 0 9px rgba(40, 123, 212, .18), 0 4px 13px rgba(30, 70, 110, .3); }
 .user-map-icon i { width: 5px; height: 5px; border-radius: 50%; background: white; }
+.map-load-status { position: absolute; z-index: 850; top: 14px; left: 50%; max-width: calc(100% - 150px); padding: 8px 12px; border: 1px solid rgba(72,111,95,.22); border-radius: 99px; color: #315747; background: rgba(248,253,249,.94); box-shadow: 0 5px 18px rgba(42,65,54,.14); transform: translateX(-50%); font-size: 10px; font-weight: 800; text-align: center; backdrop-filter: blur(10px); }
+.map-load-status.loading::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border: 2px solid rgba(49,87,71,.25); border-top-color: #315747; border-radius: 50%; vertical-align: -1px; animation: map-status-spin .8s linear infinite; }
+@keyframes map-status-spin { to { transform: rotate(360deg); } }
 
 .place-sheet { width: min(520px, 94vw) !important; max-width: 520px !important; background: #fffdf8 !important; }
 .place-sheet [data-slot="sheet-header"] { padding: 34px 28px 18px; border-bottom: 1px solid #e0d4c8; }
@@ -331,6 +335,7 @@ h1, h2, h3, p { margin-top: 0; }
   .map-frame { height: 450px; border-radius: 20px; }
   .map-caption { grid-template-columns: 28px 1fr; }
   .map-caption button { grid-column: 1 / -1; }
+  .map-load-status { top: 10px; max-width: calc(100% - 100px); border-radius: 14px; }
   .place-sheet [data-slot="sheet-header"] { padding-inline: 20px; }
   .place-sheet [data-slot="sheet-title"] { font-size: 31px; }
   .sheet-scroll { padding-inline: 20px; }
