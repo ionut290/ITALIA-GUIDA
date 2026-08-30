@@ -1,0 +1,26 @@
+import type { Metadata } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "Italia Guida — I luoghi ti parlano",
+  description:
+    "Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Italia con GPS, audio, fotografie e video.",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="it">
+      <body>{children}</body>
+    </html>
+  );
+}
