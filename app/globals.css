@@ -178,12 +178,13 @@ h1, h2, h3, p { margin-top: 0; }
 .map-header > div > p:last-child { color: #77685e; }
 .map-layout { display: grid; grid-template-columns: 1fr 360px; gap: 18px; }
 .map-frame { position: sticky; top: 100px; height: 650px; overflow: hidden; border: 1px solid #cdbdae; border-radius: 25px; background: #e7dfd2; box-shadow: 0 17px 45px rgba(59, 38, 29, .1); }
-.map-frame iframe { width: 100%; height: 100%; border: 0; filter: saturate(.78) sepia(.08); }
-.map-caption { position: absolute; left: 16px; right: 16px; bottom: 16px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 13px; border-radius: 16px; background: rgba(255,253,248,.94); box-shadow: 0 10px 35px rgba(43, 28, 22, .18); backdrop-filter: blur(12px); }
+.poi-leaflet-map { width: 100%; height: 100%; background: #e7dfd2; }
+.poi-leaflet-map .leaflet-tile-pane { filter: saturate(.82) sepia(.05); }
+.map-caption { position: absolute; z-index: 900; left: 16px; right: 16px; bottom: 16px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 13px; border-radius: 16px; background: rgba(255,253,248,.94); box-shadow: 0 10px 35px rgba(43, 28, 22, .18); backdrop-filter: blur(12px); }
 .map-caption > svg { color: #9a3b2f; }
 .map-caption > span { display: flex; flex-direction: column; }
 .map-caption strong { font: 700 17px Georgia, serif; }
-.map-places { overflow: hidden; border: 1px solid #d7c8ba; border-radius: 22px; background: #fffdf8; }
+.map-places { max-height: 650px; overflow-x: hidden; overflow-y: auto; border: 1px solid #d7c8ba; border-radius: 22px; background: #fffdf8; scrollbar-width: thin; }
 .map-places button { width: 100%; display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 10px; padding: 14px; border: 0; border-bottom: 1px solid #e1d7cc; background: transparent; text-align: left; cursor: pointer; }
 .map-places button:last-child { border-bottom: 0; }
 .map-places button:hover, .map-places button.selected { background: #f2e8dd; }
@@ -191,6 +192,16 @@ h1, h2, h3, p { margin-top: 0; }
 .map-places button div { display: flex; flex-direction: column; }
 .map-places strong { font: 700 16px Georgia, serif; }
 .map-places button > svg { width: 15px; }
+.poi-map-icon-shell, .user-map-icon-shell { border: 0 !important; background: transparent !important; }
+.poi-map-icon { display: grid; place-items: center; width: 36px; height: 36px; border: 3px solid #fffdf8; border-radius: 50% 50% 50% 8px; color: white; background: #9a3b2f; box-shadow: 0 6px 14px rgba(65, 35, 26, .34); transform: rotate(-45deg); font-size: 12px; font-weight: 900; }
+.poi-map-icon.izi { background: #486f5f; }
+.poi-map-icon.selected { outline: 4px solid rgba(232, 166, 91, .55); background: #d05a3d; transform: rotate(-45deg) scale(1.14); }
+.poi-map-icon b { transform: rotate(45deg); font-weight: 900; }
+.poi-map-tooltip { display: flex; min-width: 130px; flex-direction: column; gap: 2px; padding: 2px; }
+.poi-map-tooltip small { color: #9a4539; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.poi-map-tooltip strong { color: #38251f; font: 700 14px Georgia, serif; }
+.user-map-icon { display: grid; place-items: center; width: 24px; height: 24px; border: 4px solid white; border-radius: 50%; background: #287bd4; box-shadow: 0 0 0 9px rgba(40, 123, 212, .18), 0 4px 13px rgba(30, 70, 110, .3); }
+.user-map-icon i { width: 5px; height: 5px; border-radius: 50%; background: white; }
 
 .place-sheet { width: min(520px, 94vw) !important; max-width: 520px !important; background: #fffdf8 !important; }
 .place-sheet [data-slot="sheet-header"] { padding: 34px 28px 18px; border-bottom: 1px solid #e0d4c8; }

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { PoiMap, type PoiMapPoint } from "@/components/poi-map";
 
 type PhotoAsset = {
   src: string;
@@ -547,10 +548,38 @@ export default function Home() {
     if (currentStop < activeTourPlaces.length - 1) setCurrentStop((value) => value + 1);
   }
 
-  const mapPlace = selected ?? places.find((place) => place.id === mapPlaceId) ?? places[1];
-  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${mapPlace.lng - 0.009}%2C${mapPlace.lat - 0.006}%2C${mapPlace.lng + 0.009}%2C${mapPlace.lat + 0.006}&layer=mapnik&marker=${mapPlace.lat}%2C${mapPlace.lng}`;
+  const mapDisplayPoints = useMemo(() => {
+    const curated = places
+      .filter((place) => !userPosition || nearbyPlaces.length === 0 || distanceKm(userPosition.lat, userPosition.lng, place.lat, place.lng) <= 15)
+      .map<PoiMapPoint>((place) => ({ id: place.id, name: place.name, category: place.category, lat: place.lat, lng: place.lng, source: "curated" }));
+    const dynamic = nearbyPlaces.map<PoiMapPoint>((place) => ({
+      id: `nearby-${place.pageid}`,
+      name: place.title,
+      category: place.category || "Punto di interesse",
+      lat: place.lat,
+      lng: place.lng,
+      source: place.source,
+    }));
+    const ordered = [...dynamic.filter((point) => point.source === "izi"), ...curated, ...dynamic.filter((point) => point.source !== "izi")];
+    return ordered.filter((point, index, all) => all.findIndex((candidate) =>
+      candidate.name.localeCompare(point.name, "it", { sensitivity: "base" }) === 0 &&
+      distanceKm(candidate.lat, candidate.lng, point.lat, point.lng) < 0.08,
+    ) === index).slice(0, 30);
+  }, [nearbyPlaces, userPosition]);
+  const mapPlace = mapDisplayPoints.find((place) => place.id === mapPlaceId) ?? mapDisplayPoints[0];
   const nearbyAiPhoto = selectedNearby ? curatedAiFor(selectedNearby.title) : null;
   const nearbyYoutubeId = nearbyVideo?.type === "youtube" ? youtubeVideoId(nearbyVideo.url) : null;
+
+  function selectMapPoint(id: string) {
+    setMapPlaceId(id);
+    const curated = places.find((place) => place.id === id);
+    if (curated) {
+      setSelected(curated);
+      return;
+    }
+    const nearby = nearbyPlaces.find((place) => `nearby-${place.pageid}` === id);
+    if (nearby) void openNearby(nearby);
+  }
 
   return (
     <main className="app-shell">
@@ -674,10 +703,13 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="mappa" className="content-area map-content">
-          <section className="map-header"><div><p className="eyebrow"><Map /> Orientati in città</p><h1>Mappa di Bologna</h1><p>Seleziona un luogo e avvia la navigazione.</p></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></section>
+          <section className="map-header"><div><p className="eyebrow"><Map /> Monumenti e punti di interesse</p><h1>Mappa turistica</h1><p>Tutti i luoghi sono indicati sulla mappa. Attiva il GPS per vedere quelli intorno a te.</p></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></section>
           <section className="map-layout">
-            <div className="map-frame"><iframe title={`Mappa di ${mapPlace.name}`} src={mapUrl} loading="lazy" /><div className="map-caption"><MapPin /><span><small>Luogo selezionato</small><strong>{mapPlace.name}</strong></span><Button size="sm" asChild><a href={`https://www.google.com/maps/dir/?api=1&destination=${mapPlace.lat},${mapPlace.lng}`} target="_blank" rel="noreferrer">Naviga <ExternalLink /></a></Button></div></div>
-            <div className="map-places">{places.map((place, index) => <button key={place.id} className={mapPlace.id === place.id ? "selected" : ""} onClick={() => { setMapPlaceId(place.id); setSelected(place); }}><span>{index + 1}</span><div><small>{place.category}</small><strong>{place.name}</strong></div><ChevronRight /></button>)}</div>
+            <div className="map-frame">
+              <PoiMap points={mapDisplayPoints} selectedId={mapPlace?.id} userPosition={userPosition} onSelect={selectMapPoint} />
+              {mapPlace && <div className="map-caption"><MapPin /><span><small>Luogo selezionato</small><strong>{mapPlace.name}</strong></span><Button size="sm" asChild><a href={`https://www.google.com/maps/dir/?api=1&destination=${mapPlace.lat},${mapPlace.lng}`} target="_blank" rel="noreferrer">Naviga <ExternalLink /></a></Button></div>}
+            </div>
+            <div className="map-places">{mapDisplayPoints.map((place, index) => <button key={place.id} className={mapPlace?.id === place.id ? "selected" : ""} onClick={() => selectMapPoint(place.id)}><span>{index + 1}</span><div><small>{place.source === "izi" ? `🎧 ${place.category}` : place.category}</small><strong>{place.name}</strong></div><ChevronRight /></button>)}</div>
           </section>
         </TabsContent>
 
