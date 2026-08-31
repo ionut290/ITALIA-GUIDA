@@ -12,18 +12,21 @@ const handler = async (request) => {
   if (title.length < 2) return json({ error: "Titolo non valido" }, 400);
 
   try {
-    const article = await resolveWikipediaArticle(title, lat, lng);
-    const [commons, youtube, wikidata] = await Promise.all([
-      loadCommonsImages(article?.title || title),
+    const [article, commons, youtube, openstreetmap] = await Promise.all([
+      resolveWikipediaArticle(title, lat, lng).catch(() => null),
+      loadCommonsImages(title),
       loadYoutube(title),
-      article?.wikibaseItem ? loadWikidata(article.wikibaseItem) : Promise.resolve(null),
+      Number.isFinite(lat) && Number.isFinite(lng) ? loadOpenStreetMap(title, lat, lng) : Promise.resolve(null),
     ]);
+    const wikidata = article?.wikibaseItem ? await loadWikidata(article.wikibaseItem) : null;
 
     const sources = dedupeLinks([
       article?.pageUrl ? { title: "Wikipedia", url: article.pageUrl, kind: "enciclopedia" } : null,
       article?.wikibaseItem ? { title: "Wikidata", url: `https://www.wikidata.org/wiki/${article.wikibaseItem}`, kind: "dati" } : null,
       { title: "Wikimedia Commons", url: `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(article?.title || title)}&title=Special:MediaSearch&type=image`, kind: "foto" },
-      ...((article?.externalLinks || []).slice(0, 8).map((link) => ({ title: domainLabel(link), url: link, kind: "articolo" }))),
+      openstreetmap?.sourceUrl ? { title: "OpenStreetMap", url: openstreetmap.sourceUrl, kind: "mappa e dati" } : null,
+      (wikidata?.officialWebsite || openstreetmap?.officialWebsite) ? { title: "Sito ufficiale", url: wikidata?.officialWebsite || openstreetmap?.officialWebsite, kind: "fonte ufficiale" } : null,
+      ...((article?.externalLinks || []).slice(0, 6).map((link) => ({ title: domainLabel(link), url: link, kind: sourceScore(link) >= 20 ? "fonte istituzionale" : "approfondimento" }))),
     ].filter(Boolean));
 
     return json({
@@ -35,8 +38,8 @@ const handler = async (request) => {
       images: commons,
       videos: youtube.items,
       youtubeConfigured: youtube.configured,
-      facts: wikidata?.facts || [],
-      officialWebsite: wikidata?.officialWebsite || "",
+      facts: dedupeFacts([...(wikidata?.facts || []), ...(openstreetmap?.facts || [])]),
+      officialWebsite: wikidata?.officialWebsite || openstreetmap?.officialWebsite || "",
       sources,
     }, 200, 86400);
   } catch (error) {
@@ -48,62 +51,48 @@ const handler = async (request) => {
 export default handler;
 
 async function resolveWikipediaArticle(title, lat, lng) {
-  const candidates = [];
-
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    const geo = new URLSearchParams({
-      action: "query", list: "geosearch", gscoord: `${lat}|${lng}`, gsradius: "1200",
-      gslimit: "12", gsnamespace: "0", format: "json", origin: "*",
-    });
-    try {
-      const response = await fetch(`${WIKI_API}?${geo}`, { signal: AbortSignal.timeout(7000) });
-      if (response.ok) {
-        const data = await response.json();
-        for (const item of data.query?.geosearch || []) candidates.push(item.title);
-      }
-    } catch {}
-  }
-
-  candidates.unshift(title);
-  let resolved = candidates.find((candidate) => similarity(candidate, title) >= 0.62) || title;
+  void lat;
+  void lng;
+  let resolved = title;
 
   const search = new URLSearchParams({
     action: "query", generator: "search", gsrsearch: title, gsrnamespace: "0", gsrlimit: "5",
     prop: "extracts|pageprops|info|extlinks", exintro: "1", explaintext: "1", inprop: "url",
     ellimit: "20", redirects: "1", format: "json", origin: "*",
   });
-  const searchResponse = await fetch(`${WIKI_API}?${search}`, { signal: AbortSignal.timeout(8000) });
-  if (searchResponse.ok) {
-    const data = await searchResponse.json();
-    const pages = Object.values(data.query?.pages || {});
-    const best = pages.sort((a, b) => similarity(b.title || "", title) - similarity(a.title || "", title))[0];
-    if (best && similarity(best.title || "", title) > similarity(resolved, title)) resolved = best.title;
-  }
+  try {
+    const searchResponse = await fetch(`${WIKI_API}?${search}`, { signal: AbortSignal.timeout(4000) });
+    if (searchResponse.ok) {
+      const data = await searchResponse.json();
+      const pages = Object.values(data.query?.pages || {});
+      const best = pages.sort((a, b) => similarity(b.title || "", title) - similarity(a.title || "", title))[0];
+      if (best && similarity(best.title || "", title) >= 0.35) resolved = best.title;
+    }
+  } catch {}
 
   const params = new URLSearchParams({
     action: "query", prop: "extracts|pageprops|info|extlinks", titles: resolved,
     exintro: "1", explaintext: "1", inprop: "url", ellimit: "20", redirects: "1",
     format: "json", origin: "*",
   });
-  const response = await fetch(`${WIKI_API}?${params}`, { signal: AbortSignal.timeout(8000) });
-  if (!response.ok) return null;
-  const data = await response.json();
+  let data;
+  try {
+    const response = await fetch(`${WIKI_API}?${params}`, { signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return null;
+    data = await response.json();
+  } catch {
+    return null;
+  }
   const page = Object.values(data.query?.pages || {})[0];
   if (!page || page.missing !== undefined) return null;
-
-  let description = "";
-  try {
-    const summaryResponse = await fetch(`https://it.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(String(page.title).replaceAll(" ", "_"))}`, { signal: AbortSignal.timeout(6000) });
-    if (summaryResponse.ok) description = (await summaryResponse.json()).description || "";
-  } catch {}
 
   return {
     title: page.title,
     extract: page.extract || "",
-    description,
+    description: "",
     pageUrl: page.fullurl || `https://it.wikipedia.org/wiki/${encodeURIComponent(String(page.title).replaceAll(" ", "_"))}`,
     wikibaseItem: page.pageprops?.wikibase_item || "",
-    externalLinks: (page.extlinks || []).map((item) => item["*"]).filter(isUsefulExternalLink),
+    externalLinks: (page.extlinks || []).map((item) => item["*"]).filter(isUsefulExternalLink).sort((a, b) => sourceScore(b) - sourceScore(a)),
   };
 }
 
@@ -165,8 +154,19 @@ async function loadWikidata(id) {
     const website = claimValue(entity.claims?.P856?.[0]);
     const inception = timeValue(entity.claims?.P571?.[0]);
     const coordinate = coordinateValue(entity.claims?.P625?.[0]);
+    const related = {
+      "Tipologia": entityIds(entity.claims?.P31),
+      "Architetto / autore": entityIds(entity.claims?.P84),
+      "Stile architettonico": entityIds(entity.claims?.P149),
+      "Tutela": entityIds(entity.claims?.P1435),
+    };
+    const labels = await loadWikidataLabels([...new Set(Object.values(related).flat())]);
     const facts = [];
     if (inception) facts.push({ label: "Data / periodo", value: inception });
+    for (const [label, ids] of Object.entries(related)) {
+      const values = ids.map((relatedId) => labels[relatedId]).filter(Boolean);
+      if (values.length) facts.push({ label, value: [...new Set(values)].slice(0, 3).join(", ") });
+    }
     if (coordinate) facts.push({ label: "Coordinate", value: coordinate });
     return { officialWebsite: typeof website === "string" ? website : "", facts };
   } catch {
@@ -174,8 +174,58 @@ async function loadWikidata(id) {
   }
 }
 
+async function loadWikidataLabels(ids) {
+  if (!ids.length) return {};
+  try {
+    const params = new URLSearchParams({ action: "wbgetentities", ids: ids.slice(0, 30).join("|"), props: "labels", languages: "it|en", format: "json", origin: "*" });
+    const response = await fetch(`${WIKIDATA_API}?${params}`, { signal: AbortSignal.timeout(7000) });
+    if (!response.ok) return {};
+    const entities = (await response.json()).entities || {};
+    return Object.fromEntries(Object.entries(entities).map(([entityId, entity]) => [entityId, entity.labels?.it?.value || entity.labels?.en?.value || ""]));
+  } catch {
+    return {};
+  }
+}
+
+async function loadOpenStreetMap(title, lat, lng) {
+  const query = `[out:json][timeout:6];nwr(around:120,${lat},${lng})["name"];out center tags 30;`;
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "User-Agent": "Italia-Guida/1.1" },
+      body: new URLSearchParams({ data: query }),
+      signal: AbortSignal.timeout(7500),
+    });
+    if (!response.ok) return null;
+    const elements = (await response.json()).elements || [];
+    const candidates = elements
+      .map((element) => ({ element, score: similarity(element.tags?.["name:it"] || element.tags?.name || "", title) }))
+      .filter((candidate) => candidate.score >= 0.48)
+      .sort((a, b) => b.score - a.score);
+    const element = candidates[0]?.element;
+    if (!element) return null;
+    const tags = element.tags || {};
+    const facts = [];
+    if (tags.start_date) facts.push({ label: "Periodo (OpenStreetMap)", value: tags.start_date });
+    if (tags.architect) facts.push({ label: "Architetto (OpenStreetMap)", value: tags.architect });
+    if (tags.architectural_style) facts.push({ label: "Stile (OpenStreetMap)", value: tags.architectural_style });
+    if (tags.opening_hours) facts.push({ label: "Orari indicativi", value: tags.opening_hours });
+    if (tags.fee) facts.push({ label: "Ingresso", value: tags.fee === "no" ? "Gratuito" : tags.fee === "yes" ? "A pagamento" : tags.fee });
+    return {
+      facts,
+      officialWebsite: tags.website || tags["contact:website"] || "",
+      sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function claimValue(claim) {
   return claim?.mainsnak?.datavalue?.value ?? null;
+}
+function entityIds(claims = []) {
+  return claims.map((claim) => claimValue(claim)?.id).filter((id) => typeof id === "string");
 }
 function timeValue(claim) {
   const value = claimValue(claim)?.time;
@@ -193,8 +243,17 @@ function coordinateValue(claim) {
 function isUsefulExternalLink(link) {
   try {
     const host = new URL(link).hostname.replace(/^www\./, "");
-    return !/(wikipedia|wikimedia|wikidata|facebook|instagram|twitter|x\.com|youtube|youtu\.be)$/i.test(host);
+    return !/(wikipedia|wikimedia|wikidata|facebook|instagram|twitter|x\.com|youtube|youtu\.be|web\.archive|viaf\.org|wordpress|blogspot)/i.test(host);
   } catch { return false; }
+}
+function sourceScore(link) {
+  try {
+    const host = new URL(link).hostname.replace(/^www\./, "").toLowerCase();
+    if (/\.gov\.it$|\.comune\.|comune\.|cultura\.gov\.it|unesco\.org|\.edu$|\.unibo\.it$/.test(host)) return 40;
+    if (/muse|fondazione|biblioteca|turismo|welcome|official/.test(host)) return 25;
+    if (/treccani|enciclopedia|istituto/.test(host)) return 18;
+    return 5;
+  } catch { return 0; }
 }
 function domainLabel(link) {
   try { return new URL(link).hostname.replace(/^www\./, ""); } catch { return "Approfondimento"; }
@@ -202,6 +261,15 @@ function domainLabel(link) {
 function dedupeLinks(items) {
   const seen = new Set();
   return items.filter((item) => item?.url && !seen.has(item.url) && seen.add(item.url)).slice(0, 12);
+}
+function dedupeFacts(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${normalize(item?.label)}:${normalize(item?.value)}`;
+    if (!item?.label || !item?.value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 10);
 }
 function normalize(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();

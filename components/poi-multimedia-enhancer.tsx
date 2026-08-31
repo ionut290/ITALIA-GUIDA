@@ -32,31 +32,27 @@ export function PoiMultimediaEnhancer() {
     const detect = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const sheet = document.querySelector<HTMLElement>(".place-sheet.nearby-sheet");
+        const sheets = Array.from(document.querySelectorAll<HTMLElement>(".place-sheet"));
+        const sheet = sheets.find((candidate) => candidate.dataset.state === "open")
+          ?? sheets.find((candidate) => candidate.getClientRects().length > 0);
         if (!sheet) {
           setActive(null);
           return;
         }
-        const title = sheet.querySelector<HTMLElement>("[data-slot='sheet-title'], h2")?.textContent?.trim();
-        const scroll = sheet.querySelector<HTMLElement>(".sheet-scroll");
-        if (!title || !scroll) return;
-
-        let host = scroll.querySelector<HTMLElement>("[data-poi-multimedia-host]");
-        if (!host) {
-          host = document.createElement("div");
-          host.dataset.poiMultimediaHost = "true";
-          const sourceActions = scroll.querySelector(".source-actions");
-          if (sourceActions) scroll.insertBefore(host, sourceActions);
-          else scroll.appendChild(host);
-        }
+        const title = sheet.dataset.poiTitle?.trim()
+          || sheet.querySelector<HTMLElement>("[data-slot='sheet-title'], h2")?.textContent?.trim();
+        const host = sheet.querySelector<HTMLElement>("[data-poi-multimedia-host]");
+        if (!title || !host) return;
 
         const nav = sheet.querySelector<HTMLAnchorElement>('a[href*="destination="]');
-        let lat: number | undefined;
-        let lng: number | undefined;
+        let lat = Number(sheet.dataset.poiLat);
+        let lng = Number(sheet.dataset.poiLng);
+        if (!Number.isFinite(lat)) lat = NaN;
+        if (!Number.isFinite(lng)) lng = NaN;
         if (nav) {
           try {
             const destination = new URL(nav.href).searchParams.get("destination")?.split(",");
-            if (destination?.length === 2) {
+            if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && destination?.length === 2) {
               const a = Number(destination[0]);
               const b = Number(destination[1]);
               if (Number.isFinite(a) && Number.isFinite(b)) { lat = a; lng = b; }
@@ -64,7 +60,9 @@ export function PoiMultimediaEnhancer() {
           } catch {}
         }
 
-        setActive((current) => current?.title === title && current.host === host ? current : { title, lat, lng, host });
+        setActive((current) => current?.title === title && current.host === host
+          ? current
+          : { title, lat: Number.isFinite(lat) ? lat : undefined, lng: Number.isFinite(lng) ? lng : undefined, host });
       });
     };
 
@@ -75,41 +73,45 @@ export function PoiMultimediaEnhancer() {
   }, []);
 
   useEffect(() => {
-    if (!active) { setDetails(null); return; }
+    if (!active) return;
     const controller = new AbortController();
     const params = new URLSearchParams({ title: active.title });
     if (Number.isFinite(active.lat)) params.set("lat", String(active.lat));
     if (Number.isFinite(active.lng)) params.set("lng", String(active.lng));
 
-    setLoading(true);
-    setDetails(null);
-    fetch(`/.netlify/functions/poi-details?${params}`, { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("details")))
-      .then((data) => setDetails(data))
+    Promise.resolve().then(() => {
+      if (controller.signal.aborted) return null;
+      setLoading(true);
+      setDetails(null);
+      return fetch(`/.netlify/functions/poi-details?${params}`, { signal: controller.signal });
+    })
+      .then((response) => response ? (response.ok ? response.json() : Promise.reject(new Error("details"))) : null)
+      .then((data) => { if (data) setDetails(data); })
       .catch((error) => { if (error?.name !== "AbortError") setDetails(null); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [active?.title, active?.lat, active?.lng]);
+  }, [active]);
 
   const youtubeSearch = useMemo(() => active ? `https://www.youtube.com/results?search_query=${encodeURIComponent(`${active.title} guida turistica storia`)}` : "", [active]);
   if (!active) return null;
 
   return createPortal(
-    <section style={{ display: "grid", gap: 18, marginTop: 18, paddingTop: 18, borderTop: "1px solid rgba(120,120,120,.22)" }} aria-label="Approfondimenti multimediali">
+    <section className="multisource-panel" aria-label="Approfondimenti multimediali">
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <Newspaper size={20} aria-hidden="true" />
-        <div><strong style={{ display: "block", fontSize: 17 }}>Approfondimenti completi</strong><span style={{ opacity: .72, fontSize: 13 }}>Foto, video, dati e fonti caricati solo quando apri il luogo</span></div>
+        <div><strong style={{ display: "block", fontSize: 17 }}>Racconto da più fonti</strong><span style={{ opacity: .72, fontSize: 13 }}>Wikipedia, Wikidata, Wikimedia Commons, OpenStreetMap e sito ufficiale quando disponibile</span></div>
       </div>
 
       {loading && <div style={{ display: "flex", gap: 10, alignItems: "center", opacity: .75 }}><LoaderCircle className="spin" size={18} /> Cerco contenuti affidabili…</div>}
 
-      {details?.description && <p style={{ margin: 0, fontWeight: 600 }}>{details.description}</p>}
-      {details?.facts && details.facts.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 8 }}>{details.facts.map((fact) => <div key={`${fact.label}-${fact.value}`} style={{ padding: 10, borderRadius: 12, background: "rgba(120,120,120,.08)" }}><small style={{ display: "block", opacity: .65 }}>{fact.label}</small><strong>{fact.value}</strong></div>)}</div>}
+      {details?.description && <p className="source-description">{details.description}</p>}
+      {details?.summary && <details className="source-story" open><summary>Storia e contesto</summary><p>{details.summary}</p></details>}
+      {details?.facts && details.facts.length > 0 && <div><strong className="subsection-title">Dati incrociati</strong><div className="source-facts">{details.facts.map((fact) => <div key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong>{fact.value}</strong></div>)}</div></div>}
 
       {details?.images && details.images.length > 0 && <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}><Images size={18} /><strong>Galleria fotografica</strong><small style={{ opacity: .65 }}> · Wikimedia Commons</small></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-          {details.images.slice(0, 6).map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "none" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}><Images size={18} /><strong>Fotografie documentarie</strong><small style={{ opacity: .65 }}> · Wikimedia Commons</small></div>
+        <div className="source-gallery">
+          {details.images.slice(0, 8).map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" className={index === 0 ? "featured" : ""}>
             <img src={image.url} alt={image.title || `Foto di ${active.title}`} loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", aspectRatio: index === 0 ? "16 / 10" : "4 / 3", objectFit: "cover", borderRadius: 12, display: "block" }} />
             <small style={{ display: "block", marginTop: 4, opacity: .65, lineHeight: 1.25 }}>{image.author || "Wikimedia Commons"}{image.license ? ` · ${image.license}` : ""}</small>
           </a>)}
@@ -124,7 +126,7 @@ export function PoiMultimediaEnhancer() {
       </div>
 
       {details?.sources && details.sources.length > 0 && <div>
-        <strong style={{ display: "block", marginBottom: 7 }}>Articoli e fonti</strong>
+        <strong style={{ display: "block", marginBottom: 7 }}>Fonti consultate</strong>
         <div style={{ display: "grid", gap: 7 }}>{details.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", color: "inherit", textDecoration: "none", padding: "10px 12px", borderRadius: 11, background: "rgba(120,120,120,.08)" }}><span><strong style={{ display: "block" }}>{source.title}</strong>{source.kind && <small style={{ opacity: .62 }}>{source.kind}</small>}</span><ExternalLink size={15} /></a>)}</div>
       </div>}
 

@@ -8,11 +8,13 @@ Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Itali
 - ricerca dei punti culturali entro 10 km;
 - apertura automatica della scheda entro 300 metri;
 - mappa Leaflet nazionale con caricamento automatico dei monumenti e POI OpenStreetMap nell’area visibile, oltre alla posizione GPS;
-- audioguida italiana, fotografie, video e navigazione;
+- audioguida italiana con selezione automatica della voce più naturale, ritmo e pause narrative;
+- schede estese con dati incrociati da Wikipedia, Wikidata, Wikimedia Commons e OpenStreetMap;
+- gallerie fino a 8 fotografie documentarie, video e navigazione;
 - audioguide originali izi.TRAVEL quando disponibili;
 - video Wikimedia e YouTube incorporati quando disponibili;
 - itinerari editoriali completi per Bologna;
-- ricostruzioni generate con AI sempre dichiarate.
+- ricostruzioni generate con AI sempre dichiarate e separate dalle fotografie reali.
 
 ## Avvio locale
 

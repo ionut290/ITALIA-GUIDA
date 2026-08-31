@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, BellRing, BookOpen, Check, ChevronLeft, ChevronRight, Compass,
-  ExternalLink, Globe2, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
+  ExternalLink, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
   Play, Search, Sparkles, Square, Video, Volume2, Footprints,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,6 @@ type Place = {
   wikiTitle: string;
   video?: { id: string; title: string };
 };
-
-type WikiInsight = { title: string; extract: string; pageUrl: string };
 
 type NearbyVideo = {
   url: string;
@@ -90,7 +88,10 @@ const places: Place[] = [
     curiosity: "Guardando la statua da una precisa pietra della piazza, la prospettiva crea un curioso effetto ottico voluto dallo scultore.",
     wikiTitle: "Fontana_del_Nettuno_(Bologna)",
     video: { id: "JmmPxSVD0d8", title: "Piazza del Nettuno e Piazza Maggiore di notte" },
-    photos: [{ src: commonsFile("(Bologna) - Fontana del Nettuno.jpg"), alt: "La Fontana del Nettuno nella piazza", credit: "Wikimedia Commons", source: commonsPage("(Bologna) - Fontana del Nettuno.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("(Bologna) - Fontana del Nettuno.jpg"), alt: "La Fontana del Nettuno nella piazza", credit: "Wikimedia Commons", source: commonsPage("(Bologna) - Fontana del Nettuno.jpg"), kind: "photo" },
+      { src: "/images/ai/nettuno-cinquecento.jpg", alt: "Interpretazione artistica della Piazza del Nettuno nel tardo Cinquecento", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Piazza del Nettuno, Bologna", lat: 44.49422, lng: 11.34223, minutes: 8, free: true,
   },
   {
@@ -115,7 +116,10 @@ const places: Place[] = [
     curiosity: "Non è la cattedrale cittadina: questo ruolo appartiene alla Cattedrale di San Pietro in via Indipendenza.",
     wikiTitle: "Basilica_di_San_Petronio",
     video: { id: "ObBreSoNzZY", title: "Bologna, where every day is special" },
-    photos: [{ src: commonsFile("Basilica di San Petronio - Bologna.jpg"), alt: "La facciata della Basilica di San Petronio", credit: "Wikimedia Commons", source: commonsPage("Basilica di San Petronio - Bologna.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("Basilica di San Petronio - Bologna.jpg"), alt: "La facciata della Basilica di San Petronio", credit: "Wikimedia Commons", source: commonsPage("Basilica di San Petronio - Bologna.jpg"), kind: "photo" },
+      { src: "/images/ai/piazza-maggiore-rinascimento.jpg", alt: "Interpretazione artistica del contesto storico di San Petronio e Piazza Maggiore", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Piazza Galvani 5, Bologna", lat: 44.49289, lng: 11.34322, minutes: 12, free: true,
   },
   {
@@ -125,7 +129,10 @@ const places: Place[] = [
     narration: `Attraversa il portico ed entra nel cortile dell'Archiginnasio. L'edificio fu costruito tra il 1562 e il 1563 per riunire in una sola sede gli insegnamenti universitari che fino ad allora erano dispersi in città. Il progetto è attribuito ad Antonio Morandi, detto il Terribilia. L'Università di Bologna era già antichissima, ma qui trovò un'immagine architettonica unitaria. Alza lo sguardo verso pareti e volte: migliaia di stemmi ricordano studenti, rettori e docenti provenienti da molte regioni d'Europa. Non sono una semplice decorazione. Costituiscono una grande mappa della comunità internazionale che studiava a Bologna, organizzata nelle scuole dei legisti e degli artisti. Salendo al piano superiore si incontra il Teatro Anatomico, realizzato nel Seicento. La sala, interamente rivestita di legno, dispone gli spettatori attorno al tavolo centrale usato per le dimostrazioni anatomiche. Le statue di medici celebri e le figure degli spellati trasformano la lezione scientifica in una rappresentazione solenne del sapere. Un altro ambiente importante è la sala dello Stabat Mater, legata alla prima esecuzione bolognese dell'opera di Rossini. Durante la seconda guerra mondiale una parte del complesso fu gravemente danneggiata e poi ricostruita. Quando torni nel cortile, pensa agli stemmi come a migliaia di firme: l'Archiginnasio racconta un'università fatta non soltanto di libri, ma di persone, viaggi e incontri attraverso i secoli.`,
     curiosity: "Gli stemmi raccontano la provenienza internazionale degli studenti che raggiungevano Bologna già molti secoli fa.",
     wikiTitle: "Archiginnasio_di_Bologna",
-    photos: [{ src: commonsFile("Archiginnasio Bologna.jpg"), alt: "Il cortile dell'Archiginnasio di Bologna", credit: "Dascky81 · Wikimedia Commons", source: commonsPage("Archiginnasio Bologna.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("Archiginnasio Bologna.jpg"), alt: "Il cortile dell'Archiginnasio di Bologna", credit: "Dascky81 · Wikimedia Commons", source: commonsPage("Archiginnasio Bologna.jpg"), kind: "photo" },
+      { src: "/images/ai/piazza-maggiore-rinascimento.jpg", alt: "Interpretazione artistica della Bologna universitaria e civica del Rinascimento", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Piazza Galvani 1, Bologna", lat: 44.49219, lng: 11.34369, minutes: 15, free: false,
   },
   {
@@ -135,7 +142,10 @@ const places: Place[] = [
     narration: `Lascia Piazza Maggiore e imbocca le strade strette del Quadrilatero. Il cambiamento è immediato: lo spazio monumentale si trasforma in una rete compatta di botteghe, portici, banchi e insegne. Questo quartiere conserva l'impronta dell'antico mercato cittadino. I nomi delle vie sono indizi preziosi. Via delle Pescherie Vecchie ricorda i venditori di pesce; via Drapperie richiama i commercianti di stoffe; via Calzolerie e via Clavature rimandano ad altri mestieri e corporazioni. Nel Medioevo le attività si concentravano per settori, creando una geografia economica riconoscibile. Camminando, osserva la larghezza ridotta delle strade e il rapporto diretto tra vetrine e passaggio pedonale. Qui l'architettura non serve a essere guardata da lontano: accompagna il movimento, protegge sotto i portici e mette le merci quasi a portata di mano. Oggi salumi, formaggi, pasta fresca, frutta e specialità locali mantengono viva la vocazione alimentare della zona, anche se il quartiere è cambiato molte volte. Guarda in alto oltre le insegne: sopra le botteghe continuano le facciate delle case, segno che commercio e vita quotidiana hanno sempre condiviso lo stesso spazio. Il Quadrilatero si comprende soprattutto con i sensi: ascolta le voci, nota gli odori, osserva i colori dei banchi. È una parte di Bologna dove la storia non è chiusa in un museo, ma continua a essere usata, venduta, cucinata e raccontata ogni giorno.`,
     curiosity: "Via delle Pescherie Vecchie conserva nel nome e nelle insegne la memoria delle attività che occupavano questa zona.",
     wikiTitle: "Quadrilatero_(Bologna)",
-    photos: [{ src: commonsFile("Bologna Via Pescherie Vecchie.jpg"), alt: "Le botteghe di via Pescherie Vecchie nel Quadrilatero", credit: "Andrzej Otrębski · Wikimedia Commons · CC BY-SA", source: commonsPage("Bologna Via Pescherie Vecchie.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("Bologna Via Pescherie Vecchie.jpg"), alt: "Le botteghe di via Pescherie Vecchie nel Quadrilatero", credit: "Andrzej Otrębski · Wikimedia Commons · CC BY-SA", source: commonsPage("Bologna Via Pescherie Vecchie.jpg"), kind: "photo" },
+      { src: "/images/ai/canale-moline-seta.jpg", alt: "Interpretazione artistica della Bologna mercantile e manifatturiera", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Via delle Pescherie Vecchie, Bologna", lat: 44.49331, lng: 11.3443, minutes: 12, free: true,
   },
   {
@@ -145,7 +155,10 @@ const places: Place[] = [
     narration: `Fermati qualche istante nella piazza e osserva la sua forma: si allarga gradualmente verso il complesso religioso, quasi invitando a entrare. Santo Stefano non è una sola chiesa, ma un insieme di edifici costruiti, trasformati e collegati nel corso di molti secoli. Per questo i bolognesi lo chiamano spesso le Sette Chiese, anche se il numero degli ambienti è cambiato nel tempo. Varcando l'ingresso passi dalla città a un percorso simbolico ispirato ai luoghi della Gerusalemme cristiana. La chiesa del Crocifisso introduce il complesso; la basilica del Santo Sepolcro ne costituisce il cuore evocativo; la chiesa dei Santi Vitale e Agricola conserva la memoria dei primi martiri bolognesi. Proseguendo incontri il Cortile di Pilato e spazi monastici raccolti, dove pietra, mattoni e colonne di provenienze diverse raccontano continue ricostruzioni. Non cercare un'unica simmetria: il fascino nasce proprio dalle irregolarità, dai passaggi stretti e dai cambiamenti di luce. La presenza benedettina contribuì per secoli a custodire e riorganizzare questi luoghi. Uscendo, guarda di nuovo la piazza e i lunghi portici delle case nobiliari. L'esterno elegante e aperto prepara un interno complesso e silenzioso. Santo Stefano è uno dei luoghi migliori per capire come Bologna abbia sovrapposto epoche, devozioni e materiali senza cancellare del tutto ciò che esisteva prima.`,
     curiosity: "Il nome popolare “Sette Chiese” richiama un progetto simbolico ispirato ai luoghi della Gerusalemme cristiana.",
     wikiTitle: "Basilica_di_Santo_Stefano_(Bologna)",
-    photos: [{ src: commonsFile("Piazza Santo Stefano - Bologna.jpg"), alt: "Piazza Santo Stefano e il complesso delle Sette Chiese", credit: "Wikimedia Commons", source: commonsPage("Piazza Santo Stefano - Bologna.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("Piazza Santo Stefano - Bologna.jpg"), alt: "Piazza Santo Stefano e il complesso delle Sette Chiese", credit: "Wikimedia Commons", source: commonsPage("Piazza Santo Stefano - Bologna.jpg"), kind: "photo" },
+      { src: "/images/ai/santo-stefano-medievale.jpg", alt: "Interpretazione artistica del complesso di Santo Stefano nel Medioevo", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Via Santo Stefano 24, Bologna", lat: 44.49203, lng: 11.34877, minutes: 15, free: true,
   },
   {
@@ -183,7 +196,10 @@ const places: Place[] = [
     curiosity: "Il percorso coperto ha accompagnato per secoli pellegrini e processioni e oggi è una delle passeggiate più amate dai bolognesi.",
     wikiTitle: "Santuario_della_Madonna_di_San_Luca",
     video: { id: "otllqoNgBUI", title: "Bologna Read by Londoners: San Luca" },
-    photos: [{ src: commonsFile("Il Santuario di San Luca a Bologna.jpg"), alt: "Il Santuario della Madonna di San Luca sul colle", credit: "Wikimedia Commons", source: commonsPage("Il Santuario di San Luca a Bologna.jpg"), kind: "photo" }],
+    photos: [
+      { src: commonsFile("Il Santuario di San Luca a Bologna.jpg"), alt: "Il Santuario della Madonna di San Luca sul colle", credit: "Wikimedia Commons", source: commonsPage("Il Santuario di San Luca a Bologna.jpg"), kind: "photo" },
+      { src: "/images/ai/san-luca-portico-storico.jpg", alt: "Interpretazione artistica del pellegrinaggio sotto il portico di San Luca nel Settecento", credit: "Ricostruzione illustrativa generata con AI", kind: "ai" },
+    ],
     address: "Via di San Luca 36, Bologna", lat: 44.47905, lng: 11.29891, minutes: 25, free: true,
   },
 ];
@@ -228,6 +244,55 @@ function curatedAiFor(title: string) {
   return match?.photos.find((photo) => photo.kind === "ai") ?? null;
 }
 
+function scoreItalianVoice(voice: SpeechSynthesisVoice) {
+  const name = voice.name.toLowerCase();
+  let score = voice.lang.toLowerCase() === "it-it" ? 80 : voice.lang.toLowerCase().startsWith("it") ? 60 : 0;
+  if (/neural|natural|premium|enhanced|siri|google|microsoft/.test(name)) score += 35;
+  if (/alice|elsa|federica|isabella|diego|cosimo/.test(name)) score += 18;
+  if (voice.default) score += 6;
+  if (voice.localService) score += 4;
+  if (/espeak|compact/.test(name)) score -= 25;
+  return score;
+}
+
+async function preferredItalianVoice() {
+  const synth = window.speechSynthesis;
+  let voices = synth.getVoices();
+  if (voices.length === 0) {
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 450);
+      const loaded = () => { window.clearTimeout(timer); synth.removeEventListener("voiceschanged", loaded); resolve(); };
+      synth.addEventListener("voiceschanged", loaded, { once: true });
+    });
+    voices = synth.getVoices();
+  }
+  return voices
+    .filter((voice) => voice.lang.toLowerCase().startsWith("it"))
+    .sort((a, b) => scoreItalianVoice(b) - scoreItalianVoice(a))[0] ?? null;
+}
+
+function narrationChunks(title: string, text: string) {
+  const cleaned = text.replace(/\s+/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
+  const sentences = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [cleaned];
+  const chunks = [`Sei davanti a ${title}. Prenditi un momento, guarda ciò che hai intorno e lasciati guidare.`];
+  for (const sentence of sentences) {
+    const parts = sentence.length > 280
+      ? sentence.split(/(?<=[,;:])\s+/).reduce<string[]>((items, part) => {
+          const previous = items.at(-1);
+          if (previous && `${previous} ${part}`.length <= 250) items[items.length - 1] = `${previous} ${part}`;
+          else items.push(part);
+          return items;
+        }, [])
+      : [sentence];
+    for (const part of parts) {
+      const previous = chunks.at(-1);
+      if (previous && previous.length < 110 && `${previous} ${part}`.length <= 245) chunks[chunks.length - 1] = `${previous} ${part}`;
+      else chunks.push(part.trim());
+    }
+  }
+  return chunks.filter(Boolean);
+}
+
 export default function Home() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Place | null>(null);
@@ -238,9 +303,6 @@ export default function Home() {
   const [activeTourId, setActiveTourId] = useState("essential");
   const [mapPlaceId, setMapPlaceId] = useState("maggiore");
   const [photoIndex, setPhotoIndex] = useState(0);
-  const [wikiInsight, setWikiInsight] = useState<WikiInsight | null>(null);
-  const [wikiLoading, setWikiLoading] = useState(false);
-  const [wikiError, setWikiError] = useState("");
   const [locationStatus, setLocationStatus] = useState("Trova i luoghi vicini");
   const [userPosition, setUserPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
@@ -271,8 +333,6 @@ export default function Home() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       setPhotoIndex(0);
-      setWikiInsight(null);
-      setWikiError("");
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selected?.id]);
@@ -296,7 +356,7 @@ export default function Home() {
   const activeTourPlaces = tourPlaceIds[activeTourId].map((id) => places.find((place) => place.id === id)!);
   const activePlace = activeTourPlaces[currentStop];
 
-  function playSpeech(id: string, title: string, text: string, rate: number) {
+  async function playSpeech(id: string, title: string, text: string, rate: number) {
     if (!("speechSynthesis" in window)) return;
     if (speakingId === id) {
       speechRunRef.current += 1;
@@ -307,49 +367,32 @@ export default function Home() {
     speechRunRef.current += 1;
     const run = speechRunRef.current;
     window.speechSynthesis.cancel();
-    const chunks = (`${title}. ${text}`.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g) ?? [text]).reduce<string[]>((result, sentence) => {
-      const last = result.at(-1);
-      if (last && `${last} ${sentence}`.length <= 230) result[result.length - 1] = `${last} ${sentence}`.trim();
-      else result.push(sentence.trim());
-      return result;
-    }, []);
+    setSpeakingId(id);
+    const [voice, chunks] = await Promise.all([
+      preferredItalianVoice(),
+      Promise.resolve(narrationChunks(title, text.slice(0, 6500))),
+    ]);
+    if (run !== speechRunRef.current) return;
     const speakChunk = (index: number) => {
       if (run !== speechRunRef.current) return;
       if (index >= chunks.length) { setSpeakingId(null); return; }
       const utterance = new SpeechSynthesisUtterance(chunks[index]);
       utterance.lang = "it-IT";
-      utterance.rate = rate;
-      utterance.onend = () => speakChunk(index + 1);
+      if (voice) utterance.voice = voice;
+      utterance.rate = index === 0 ? Math.max(0.82, rate - 0.04) : rate;
+      utterance.pitch = 0.98;
+      utterance.volume = 1;
+      utterance.onend = () => window.setTimeout(() => speakChunk(index + 1), /[!?]$/.test(chunks[index]) ? 220 : 125);
       utterance.onerror = () => { if (run === speechRunRef.current) setSpeakingId(null); };
       window.speechSynthesis.speak(utterance);
     };
-    setSpeakingId(id);
     speakChunk(0);
   }
 
   function speak(place: Place) {
     setSelected(place);
     setPhotoIndex(0);
-    playSpeech(place.id, place.name, place.narration, 0.93);
-  }
-
-  async function loadWikiInsight(place: Place) {
-    setWikiLoading(true);
-    setWikiError("");
-    try {
-      const response = await fetch(`https://it.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(place.wikiTitle)}`);
-      if (!response.ok) throw new Error("Approfondimento non disponibile");
-      const data = await response.json();
-      setWikiInsight({
-        title: data.title ?? place.name,
-        extract: data.extract ?? "Nessun testo disponibile.",
-        pageUrl: data.content_urls?.desktop?.page ?? `https://it.wikipedia.org/wiki/${encodeURIComponent(place.wikiTitle)}`,
-      });
-    } catch {
-      setWikiError("Non è stato possibile caricare l’approfondimento. Controlla la connessione e riprova.");
-    } finally {
-      setWikiLoading(false);
-    }
+    void playSpeech(place.id, place.name, place.narration, 0.9);
   }
 
   async function searchNearby(lat: number, lng: number) {
@@ -510,7 +553,7 @@ export default function Home() {
 
   function speakNearby(place: NearbyPlace) {
     const id = `nearby-${place.pageid}`;
-    playSpeech(id, place.title, place.extract, 0.91);
+    void playSpeech(id, place.title, place.extract, 0.89);
   }
 
   function toggleAutoGuide() {
@@ -799,7 +842,7 @@ export default function Home() {
       </Tabs>
 
       <Sheet open={Boolean(selectedNearby)} onOpenChange={(open) => { if (!open) { speechRunRef.current += 1; window.speechSynthesis?.cancel(); setSpeakingId(null); setSelectedNearby(null); setNearbyVideo(null); } }}>
-        <SheetContent side="right" className="place-sheet nearby-sheet">
+        <SheetContent side="right" className="place-sheet nearby-sheet" data-poi-title={selectedNearby?.title} data-poi-lat={selectedNearby?.lat} data-poi-lng={selectedNearby?.lng}>
           {selectedNearby && <>
             <SheetHeader><p className="eyebrow">{selectedNearby.source === "openstreetmap" ? "Punto di interesse sulla mappa" : "Guida rilevata vicino a te"}</p><SheetTitle>{selectedNearby.title}</SheetTitle><SheetDescription>{selectedNearby.source === "openstreetmap" ? `${selectedNearby.category || "Luogo turistico"} · Italia` : selectedNearby.distance < 1000 ? `${Math.round(selectedNearby.distance)} metri da te` : `${(selectedNearby.distance / 1000).toFixed(1)} km da te`}</SheetDescription></SheetHeader>
             <div className="sheet-scroll">
@@ -811,10 +854,11 @@ export default function Home() {
               {selectedNearby.audioUrl ? (
                 <div className="original-audio"><div className="media-heading"><Headphones /><div><strong>Audioguida originale</strong><span>Contenuto fornito da izi.TRAVEL</span></div></div><audio src={selectedNearby.audioUrl} controls preload="none" /></div>
               ) : (
-                <div className="audio-box"><Headphones /><div><strong>Audioguida in italiano</strong><span>Testo culturale letto dal telefono</span></div><Button size="icon-lg" onClick={() => speakNearby(selectedNearby)} aria-label={speakingId === `nearby-${selectedNearby.pageid}` ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === `nearby-${selectedNearby.pageid}` ? <Square /> : <Play />}</Button></div>
+                <div className="audio-box"><Headphones /><div><strong>Voce narrativa naturale</strong><span>La migliore voce italiana disponibile sul dispositivo</span></div><Button size="icon-lg" onClick={() => speakNearby(selectedNearby)} aria-label={speakingId === `nearby-${selectedNearby.pageid}` ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === `nearby-${selectedNearby.pageid}` ? <Square /> : <Play />}</Button></div>
               )}
               <article><h3>Scopri il luogo</h3><p>{selectedNearby.extract}</p></article>
               {nearbyAiPhoto && <div className="guide-gallery ai-nearby"><img src={nearbyAiPhoto.src} alt={nearbyAiPhoto.alt} /><div className="image-kind ai">Ricostruzione AI</div><div className="image-caption"><span>{nearbyAiPhoto.alt}</span><small>{nearbyAiPhoto.credit}</small></div></div>}
+              <div data-poi-multimedia-host />
               <section className="video-card" aria-label="Video del luogo">
                 <div className="media-heading"><Video /><div><strong>Video del luogo</strong><span>Wikimedia Commons o ricerca esterna</span></div></div>
                 {nearbyVideoLoading && <p>Ricerca di un video libero…</p>}
@@ -830,7 +874,7 @@ export default function Home() {
       </Sheet>
 
       <Sheet open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent side="right" className="place-sheet">
+        <SheetContent side="right" className="place-sheet" data-poi-title={selected?.name} data-poi-lat={selected?.lat} data-poi-lng={selected?.lng}>
           {selected && <>
             <SheetHeader><p className="eyebrow">{selected.category}</p><SheetTitle>{selected.name}</SheetTitle><SheetDescription>{selected.address}</SheetDescription></SheetHeader>
             <div className="sheet-scroll">
@@ -861,9 +905,10 @@ export default function Home() {
                   </>
                 )}
               </div>
-              <div className="audio-box"><Headphones /><div><strong>Audioguida completa</strong><span>Circa {Math.max(2, Math.ceil(selected.narration.split(/\s+/).length / 125))} minuti di ascolto</span></div><Button size="icon-lg" onClick={() => speak(selected)} aria-label={speakingId === selected.id ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === selected.id ? <Square /> : <Play />}</Button></div>
+              <div className="audio-box"><Headphones /><div><strong>Voce narrativa naturale</strong><span>Voce italiana selezionata automaticamente · circa {Math.max(2, Math.ceil(selected.narration.split(/\s+/).length / 125))} minuti</span></div><Button size="icon-lg" onClick={() => speak(selected)} aria-label={speakingId === selected.id ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === selected.id ? <Square /> : <Play />}</Button></div>
               <article><h3>La storia</h3><p>{selected.story}</p></article>
               <article className="curiosity"><Sparkles /><div><h3>Lo sapevi?</h3><p>{selected.curiosity}</p></div></article>
+              <div data-poi-multimedia-host />
               {selected.video && (
                 <section className="video-card" aria-label="Video della tappa">
                   <div className="media-heading"><Video /><div><strong>Guarda Bologna</strong><span>Video ufficiale · avvio manuale</span></div></div>
@@ -871,12 +916,6 @@ export default function Home() {
                   <p>{selected.video.title}</p>
                 </section>
               )}
-              <section className="api-card" aria-label="Approfondimento online">
-                <div className="media-heading"><Globe2 /><div><strong>Approfondimento online</strong><span>Dati su richiesta tramite API pubblica di Wikipedia</span></div></div>
-                {!wikiInsight && <Button variant="outline" onClick={() => loadWikiInsight(selected)} disabled={wikiLoading}>{wikiLoading ? "Caricamento…" : "Carica approfondimento"}</Button>}
-                {wikiError && <p className="api-error">{wikiError}</p>}
-                {wikiInsight && <div className="api-result"><h3>{wikiInsight.title}</h3><p>{wikiInsight.extract}</p><a href={wikiInsight.pageUrl} target="_blank" rel="noreferrer">Continua su Wikipedia <ExternalLink /></a></div>}
-              </section>
               <div className="info-row"><span>Accesso esterno</span><strong>{selected.free ? "Gratuito" : "Ingresso interno a pagamento"}</strong></div>
             </div>
             <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button><Button size="lg" variant="outline" onClick={() => { setMapPlaceId(selected.id); setActiveTab("mappa"); setSelected(null); }}><Map /> Mostra sulla mappa</Button></SheetFooter>
