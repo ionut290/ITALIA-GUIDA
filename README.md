@@ -11,7 +11,7 @@ Guida turistica intelligente per scoprire monumenti, attività e servizi vicini 
 - orari di apertura, stato indicativo aperto/chiuso, prezzi e prenotazione ufficiale;
 - foto, video, sito e social pubblicati dal gestore, separati dalle fonti della comunità;
 - modulo verificato per consentire ai gestori di proporre aggiornamenti ufficiali;
-- tre modalità narrative, Portale nel tempo, Sorprendimi e riconoscimento contestuale;
+- tre modalità narrative, Portale nel tempo, Sorprendimi e riconoscimento fotografico reale dei monumenti;
 - Passaporto Varga Tour, diario automatico, condivisione, PDF e pacchetto offline;
 - mappa separata dei servizi utili: bagni, fontanelle, farmacie, ospedali, parcheggi e ricariche;
 - mappa Leaflet nazionale con caricamento automatico dei monumenti e POI OpenStreetMap nell’area visibile, oltre alla posizione GPS;
@@ -40,7 +40,8 @@ La versione base funziona senza chiavi API usando Wikipedia, Wikimedia Commons e
 
 - `IZI_TRAVEL_API_KEY`: audioguide e media izi.TRAVEL. La chiave va richiesta a izi.TRAVEL e usata nel rispetto delle condizioni del fornitore.
 - `YOUTUBE_API_KEY`: ricerca di video incorporabili. È facoltativa e soggetta alla quota gratuita del progetto Google.
+- `GOOGLE_CLOUD_VISION_API_KEY`: riconoscimento dei monumenti dalla fotografia tramite Landmark Detection. Abilitare Cloud Vision API, limitare la chiave a questa API e impostare una quota/budget nel progetto Google Cloud.
 
 Gli account social ufficiali vengono ricavati, quando presenti, da Wikidata, Wikipedia e OpenStreetMap. Foto e video social non vengono copiati sui server dell’app: si aprono o si riproducono dalla fonte originale, così autore e provenienza rimangono visibili.
 
-Le chiavi restano nelle funzioni Netlify e non vengono mai incluse nel codice inviato al browser. Se non sono configurate, l’app continua a funzionare con Wikipedia, Wikimedia Commons e sintesi vocale del dispositivo.
+Le chiavi restano nelle funzioni Netlify e non vengono mai incluse nel codice inviato al browser. Se non sono configurate, l’app continua a funzionare con Wikipedia, Wikimedia Commons e sintesi vocale del dispositivo; il pulsante fotografico segnala chiaramente quando Cloud Vision non è ancora configurato.

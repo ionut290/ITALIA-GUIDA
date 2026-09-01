@@ -89,6 +89,9 @@ h1, h2, h3, p { margin-top: 0; }
 .tour-facts svg { width: 15px; }
 .camera-recognition { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 17px; border: 1px solid rgba(255,255,255,.3); border-radius: 10px; color: #fff7ef; background: rgba(255,255,255,.08); font-size: 14px; font-weight: 600; cursor: pointer; }
 .camera-recognition input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.camera-recognition.loading { cursor: wait; opacity: .82; }
+.camera-recognition-feedback { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.24); border-radius: 9px; color: #fff4eb; background: rgba(121,38,29,.42); font-size: 12px; line-height: 1.45; }
+.spin { animation: map-status-spin .9s linear infinite; }
 
 .smart-planner { display: grid; grid-template-columns: .72fr 1.28fr; gap: 22px 34px; padding: 34px; border: 1px solid #d6c6b8; border-radius: 26px; background: #fffaf3; box-shadow: 0 16px 45px rgba(69,42,31,.08); scroll-margin-top: 90px; }
 .smart-planner-copy h2 { margin-bottom: 10px; font: 700 38px/1 Georgia, serif; }

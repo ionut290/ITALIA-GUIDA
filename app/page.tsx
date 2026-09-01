@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, BadgeCheck, BatteryLow, BellRing, BookOpen, Camera, Check, ChevronLeft, ChevronRight, CloudRain, Compass,
-  Download, ExternalLink, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
+  Download, ExternalLink, Headphones, LoaderCircle, LocateFixed, Map, MapPin, Navigation, Pause,
   Play, Search, Share2, Shuffle, Sparkles, Square, Stamp, Video, Volume2, Footprints, WandSparkles, ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,13 @@ type TravelConditions = {
   rainProbabilityNextHours?: number;
   condition: "good" | "rain" | "severe";
   message: string;
+};
+
+type LandmarkRecognition = {
+  title: string;
+  confidence: number;
+  lat?: number;
+  lng?: number;
 };
 
 const commonsFile = (name: string) =>
@@ -257,6 +264,35 @@ function geoErrorMessage(error?: GeolocationPositionError) {
   return "Posizione non disponibile. Controlla GPS e connessione, poi riprova.";
 }
 
+async function compressLandmarkPhoto(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Scegli una fotografia valida.");
+  if (file.size > 20 * 1024 * 1024) throw new Error("La foto è troppo grande. Scegline una inferiore a 20 MB.");
+
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    throw new Error("Non riesco a preparare questa fotografia.");
+  }
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.84));
+  if (!blob) throw new Error("Non riesco a preparare questa fotografia.");
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Non riesco a leggere questa fotografia."));
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.slice(dataUrl.indexOf(",") + 1);
+}
+
 function smartInterestScore(place: { title: string; category?: string; extract?: string }, interests: string[]) {
   if (!interests.length || interests.includes("tutto")) return 1;
   const text = `${place.title} ${place.category || ""} ${place.extract || ""}`.toLowerCase();
@@ -368,6 +404,8 @@ export default function Home() {
   const [smartInterests, setSmartInterests] = useState<string[]>(["tutto"]);
   const [smartRoute, setSmartRoute] = useState<SmartStop[]>([]);
   const [smartPlannerLoading, setSmartPlannerLoading] = useState(false);
+  const [cameraRecognitionLoading, setCameraRecognitionLoading] = useState(false);
+  const [cameraRecognitionMessage, setCameraRecognitionMessage] = useState("");
   const [travelConditions, setTravelConditions] = useState<TravelConditions | null>(null);
   const [batteryLow, setBatteryLow] = useState(false);
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
@@ -782,15 +820,95 @@ export default function Home() {
     } catch { setOfflinePackReady(false); }
   }
 
-  async function recognizeFromCamera() {
+  async function resolveRecognizedLandmark(landmark: LandmarkRecognition) {
+    const search = new URLSearchParams({
+      action: "query", generator: "search", gsrsearch: landmark.title, gsrnamespace: "0", gsrlimit: "5",
+      prop: "coordinates|extracts|pageimages|info", exintro: "1", explaintext: "1", inprop: "url",
+      pithumbsize: "1200", redirects: "1", format: "json", origin: "*",
+    });
     try {
-      const position = await getCurrentPosition();
-      setUserPosition(position);
-      const candidates = nearbyPlaces.length ? nearbyPlaces : await searchNearby(position.lat, position.lng);
-      const nearest = [...candidates].sort((a, b) => distanceKm(position.lat, position.lng, a.lat, a.lng) - distanceKm(position.lat, position.lng, b.lat, b.lng))[0];
-      if (nearest && distanceKm(position.lat, position.lng, nearest.lat, nearest.lng) <= 1.2) void openNearby(nearest);
-      else setNearbyError("Non riconosco con sicurezza il luogo. Spostati più vicino al monumento e riprova.");
-    } catch (error) { const geoError = error && typeof error === "object" && "code" in error ? error as GeolocationPositionError : undefined; setNearbyError(geoError ? geoErrorMessage(geoError) : "Autorizza la posizione per riconoscere il luogo fotografato."); }
+      const response = await fetch(`https://it.wikipedia.org/w/api.php?${search}`);
+      if (!response.ok) throw new Error("Scheda non disponibile");
+      const data = await response.json();
+      const pages = Object.values(data.query?.pages || {}) as Array<{
+        pageid?: number; title?: string; extract?: string; fullurl?: string; thumbnail?: { source?: string };
+        coordinates?: Array<{ lat?: number; lon?: number }>;
+      }>;
+      const recognizedLat = Number.isFinite(landmark.lat) ? Number(landmark.lat) : undefined;
+      const recognizedLng = Number.isFinite(landmark.lng) ? Number(landmark.lng) : undefined;
+      const best = pages.sort((a, b) => {
+        if (recognizedLat === undefined || recognizedLng === undefined) return 0;
+        const aCoordinate = a.coordinates?.[0];
+        const bCoordinate = b.coordinates?.[0];
+        const aDistance = Number.isFinite(aCoordinate?.lat) && Number.isFinite(aCoordinate?.lon) ? distanceKm(recognizedLat, recognizedLng, Number(aCoordinate!.lat), Number(aCoordinate!.lon)) : Number.MAX_SAFE_INTEGER;
+        const bDistance = Number.isFinite(bCoordinate?.lat) && Number.isFinite(bCoordinate?.lon) ? distanceKm(recognizedLat, recognizedLng, Number(bCoordinate!.lat), Number(bCoordinate!.lon)) : Number.MAX_SAFE_INTEGER;
+        return aDistance - bDistance;
+      })[0];
+      const coordinate = best?.coordinates?.[0];
+      const lat = Number.isFinite(coordinate?.lat) ? Number(coordinate!.lat) : recognizedLat;
+      const lng = Number.isFinite(coordinate?.lon) ? Number(coordinate!.lon) : recognizedLng;
+      if (!best?.title || lat === undefined || lng === undefined) throw new Error("Coordinate non disponibili");
+      return {
+        pageid: best.pageid ?? `camera-${best.title}`,
+        source: "wikipedia" as const,
+        title: best.title,
+        lat,
+        lng,
+        distance: userPosition ? distanceKm(userPosition.lat, userPosition.lng, lat, lng) * 1000 : 0,
+        extract: best.extract || `Monumento riconosciuto dalla fotografia con confidenza ${Math.round(landmark.confidence * 100)}%.`,
+        pageUrl: best.fullurl || `https://it.wikipedia.org/wiki/${encodeURIComponent(best.title.replaceAll(" ", "_"))}`,
+        thumbnail: best.thumbnail?.source,
+      } satisfies NearbyPlace;
+    } catch {
+      if (!Number.isFinite(landmark.lat) || !Number.isFinite(landmark.lng)) throw new Error("Ho riconosciuto il soggetto, ma non riesco a trovare la sua scheda.");
+      const lat = Number(landmark.lat);
+      const lng = Number(landmark.lng);
+      return {
+        pageid: `camera-${landmark.title}`,
+        source: "wikipedia" as const,
+        title: landmark.title,
+        lat,
+        lng,
+        distance: userPosition ? distanceKm(userPosition.lat, userPosition.lng, lat, lng) * 1000 : 0,
+        extract: `Monumento riconosciuto dalla fotografia con confidenza ${Math.round(landmark.confidence * 100)}%.`,
+        pageUrl: `https://it.wikipedia.org/w/index.php?search=${encodeURIComponent(landmark.title)}`,
+      } satisfies NearbyPlace;
+    }
+  }
+
+  async function recognizeFromCamera(file: File) {
+    if (!isOnline) {
+      const message = "Per analizzare una fotografia serve una connessione Internet.";
+      setCameraRecognitionMessage(message);
+      setNearbyError(message);
+      return;
+    }
+    setCameraRecognitionLoading(true);
+    setCameraRecognitionMessage("");
+    setNearbyError("");
+    setLocationStatus("Analizzo la fotografia…");
+    try {
+      const image = await compressLandmarkPhoto(file);
+      const response = await fetch("/.netlify/functions/recognize-landmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Non riesco ad analizzare la fotografia in questo momento.");
+      const landmark = data.landmark as LandmarkRecognition | undefined;
+      if (!landmark?.title) throw new Error("Non riconosco un monumento in questa fotografia. Prova a inquadrarlo per intero e con buona luce.");
+      const place = await resolveRecognizedLandmark(landmark);
+      setLocationStatus(`Riconosciuto: ${place.title}`);
+      await openNearby(place);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Non riesco ad analizzare la fotografia in questo momento.";
+      setCameraRecognitionMessage(message);
+      setNearbyError(message);
+      setLocationStatus("Riconoscimento non riuscito");
+    } finally {
+      setCameraRecognitionLoading(false);
+    }
   }
 
   async function loadMapArea(viewport: PoiMapViewport, requestedLayer = mapLayer) {
@@ -928,8 +1046,23 @@ export default function Home() {
                 <Button size="lg" onClick={() => document.getElementById("smart-planner")?.scrollIntoView({ behavior: "smooth" })} className="primary-action"><WandSparkles /> Guidami da qui</Button>
                 <Button size="lg" variant="outline" onClick={toggleAutoGuide}>{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Guida automatica</>}</Button>
                 <Button size="lg" variant="outline" onClick={surpriseMe}><Shuffle /> Sorprendimi</Button>
-                <label className="camera-recognition"><Camera size={17} /> Cosa sto guardando?<input type="file" accept="image/*" capture="environment" onChange={() => void recognizeFromCamera()} /></label>
+                <label className={`camera-recognition ${cameraRecognitionLoading ? "loading" : ""}`} aria-busy={cameraRecognitionLoading}>
+                  {cameraRecognitionLoading ? <LoaderCircle className="spin" size={17} /> : <Camera size={17} />}
+                  {cameraRecognitionLoading ? "Analizzo la foto…" : "Cosa sto guardando?"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    disabled={cameraRecognitionLoading}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void recognizeFromCamera(file);
+                    }}
+                  />
+                </label>
               </div>
+              {cameraRecognitionMessage && <div className="camera-recognition-feedback" role="alert">{cameraRecognitionMessage}</div>}
               <div className="tour-facts"><span><LocateFixed /> avvio entro 90 m</span><span><MapPin /> tutta Italia</span><span><Headphones /> 3 racconti</span></div>
             </div>
           </section>
