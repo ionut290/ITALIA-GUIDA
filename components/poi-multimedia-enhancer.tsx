@@ -31,12 +31,13 @@ type PoiDetails = {
 };
 
 type ActivePoi = { title: string; lat?: number; lng?: number; host: HTMLElement };
+type PreviewPhoto = { src: string; alt: string };
 
 export function PoiMultimediaEnhancer() {
   const [active, setActive] = useState<ActivePoi | null>(null);
   const [details, setDetails] = useState<PoiDetails | null>(null);
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
+  const [preview, setPreview] = useState<{ photos: PreviewPhoto[]; index: number } | null>(null);
 
   useEffect(() => {
     let frame = 0;
@@ -126,7 +127,14 @@ export function PoiMultimediaEnhancer() {
       if (!image) return;
       event.preventDefault();
       event.stopPropagation();
-      setPreview({ src: image.dataset.fullImage || image.currentSrc || image.src, alt: image.alt || "Fotografia del luogo" });
+      const sheet = image.closest<HTMLElement>(".place-sheet");
+      const clickedSrc = image.dataset.fullImage || image.currentSrc || image.src;
+      const seen = new Set<string>();
+      const photos = Array.from(sheet?.querySelectorAll<HTMLImageElement>(".guide-gallery img, .source-gallery img") || [])
+        .map((item) => ({ src: item.dataset.fullImage || item.currentSrc || item.src, alt: item.alt || "Fotografia del luogo" }))
+        .filter((item) => item.src && !seen.has(item.src) && seen.add(item.src));
+      const index = Math.max(0, photos.findIndex((item) => item.src === clickedSrc));
+      setPreview({ photos: photos.length ? photos : [{ src: clickedSrc, alt: image.alt || "Fotografia del luogo" }], index });
     };
     document.addEventListener("click", openPhoto, true);
     return () => document.removeEventListener("click", openPhoto, true);
@@ -136,7 +144,10 @@ export function PoiMultimediaEnhancer() {
     if (!preview) return;
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setPreview(null); };
     document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
+    const frame = requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-lightbox-index="${preview.index}"]`)?.scrollIntoView({ block: "start" });
+    });
+    return () => { document.removeEventListener("keydown", closeOnEscape); cancelAnimationFrame(frame); };
   }, [preview]);
 
   useEffect(() => {
@@ -242,14 +253,24 @@ export function PoiMultimediaEnhancer() {
       active.host,
     )}
     {preview && createPortal(
-      <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Fotografia ingrandita" onClick={() => setPreview(null)}>
-        <button type="button" className="photo-lightbox-close" onClick={() => setPreview(null)}><X size={20} /> Chiudi</button>
-        <div className="photo-lightbox-content" onClick={(event) => event.stopPropagation()}>
-          <img src={preview.src} alt={preview.alt} referrerPolicy="no-referrer" />
-          <p>{preview.alt}</p>
+      <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Galleria fotografica a schermo intero">
+        <div className="photo-lightbox-toolbar">
+          <strong>{preview.photos.length} {preview.photos.length === 1 ? "foto" : "foto"}</strong>
+          <button
+            type="button"
+            className="photo-lightbox-close"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => { event.preventDefault(); event.stopPropagation(); setPreview(null); }}
+          ><X size={20} /> Chiudi</button>
+        </div>
+        <div className="photo-lightbox-scroll">
+          {preview.photos.map((photo, index) => <figure key={`${photo.src}-${index}`} data-lightbox-index={index}>
+            <img src={photo.src} alt={photo.alt} loading={index === preview.index ? "eager" : "lazy"} referrerPolicy="no-referrer" />
+            <figcaption>{index + 1} / {preview.photos.length} · {photo.alt}</figcaption>
+          </figure>)}
         </div>
       </div>,
-      document.body,
+      active.host.closest(".place-sheet") || active.host,
     )}
   </>;
 }
