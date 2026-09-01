@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink, Images, LoaderCircle, Newspaper, Share2, Video, X, ZoomIn } from "lucide-react";
 
-type ImageItem = { url: string; originalUrl?: string; title?: string; author?: string; license?: string; sourceUrl?: string };
-type VideoItem = { id: string; title: string; channel?: string };
+type ImageItem = { url: string; originalUrl?: string; title?: string; author?: string; license?: string; sourceUrl?: string; taggedVargaTour?: boolean };
+type VideoItem = { id: string; title: string; channel?: string; taggedVargaTour?: boolean };
 type SourceItem = { title: string; url: string; kind?: string };
 type FactItem = { label: string; value: string };
 type SocialItem = {
@@ -16,6 +16,7 @@ type SocialItem = {
   kind?: "official" | "linked" | "search";
   embedType?: "youtube" | "tiktok-video" | "tiktok-profile" | "instagram-post";
   embedId?: string;
+  taggedVargaTour?: boolean;
 };
 type PoiDetails = {
   title: string;
@@ -38,6 +39,8 @@ export function PoiMultimediaEnhancer() {
   const [details, setDetails] = useState<PoiDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<{ photos: PreviewPhoto[]; index: number } | null>(null);
+  const [videoLimit, setVideoLimit] = useState(6);
+  const [socialLimit, setSocialLimit] = useState(4);
 
   useEffect(() => {
     let frame = 0;
@@ -110,10 +113,11 @@ export function PoiMultimediaEnhancer() {
     { platform: "Instagram", title: "Cerca foto e Reel", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(active.title)}`, kind: "search" },
   ] : [], [active]);
   const socialMedia = details?.socialMedia?.length ? details.socialMedia : socialFallback;
-  const embeddedSocials = useMemo(() => socialMedia.filter((item) => item.embedType && item.embedId).slice(0, 3), [socialMedia]);
+  const embeddedSocials = useMemo(() => socialMedia.filter((item) => item.embedType && item.embedId), [socialMedia]);
+  const visibleEmbeddedSocials = useMemo(() => embeddedSocials.slice(0, socialLimit), [embeddedSocials, socialLimit]);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setPreview(null));
+    const frame = requestAnimationFrame(() => { setPreview(null); setVideoLimit(6); setSocialLimit(4); });
     return () => cancelAnimationFrame(frame);
   }, [active?.title]);
 
@@ -151,9 +155,9 @@ export function PoiMultimediaEnhancer() {
   }, [preview]);
 
   useEffect(() => {
-    if (!embeddedSocials.length) return;
-    const needsTikTok = embeddedSocials.some((item) => item.embedType === "tiktok-profile");
-    const needsInstagram = embeddedSocials.some((item) => item.embedType === "instagram-post");
+    if (!visibleEmbeddedSocials.length) return;
+    const needsTikTok = visibleEmbeddedSocials.some((item) => item.embedType === "tiktok-profile");
+    const needsInstagram = visibleEmbeddedSocials.some((item) => item.embedType === "instagram-post");
     const timers: number[] = [];
     if (needsTikTok) {
       timers.push(window.setTimeout(() => {
@@ -178,7 +182,7 @@ export function PoiMultimediaEnhancer() {
       }, 0));
     }
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [embeddedSocials]);
+  }, [visibleEmbeddedSocials]);
 
   if (!active) return null;
 
@@ -193,9 +197,10 @@ export function PoiMultimediaEnhancer() {
         {loading && <div className="multisource-loading"><LoaderCircle className="spin" size={18} /> Carico foto e video…</div>}
 
         {details?.images && details.images.length > 0 && <div>
-          <div className="media-section-title"><Images size={18} /><strong>Galleria fotografica</strong><small> · tocca una foto per ingrandirla</small></div>
+          <div className="media-section-title"><Images size={18} /><strong>Galleria fotografica</strong><small> · {details.images.length} foto · tocca per ingrandire</small></div>
           <div className="source-gallery">
-            {details.images.slice(0, 8).map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" className={index === 0 ? "featured" : ""}>
+            {details.images.map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" className={index === 0 ? "featured" : ""}>
+              {image.taggedVargaTour && <span className="varga-priority-badge">★ Varga Tour</span>}
               <span className="photo-open-hint" data-open-photo><ZoomIn size={14} /> Apri</span>
               <img data-full-image={image.originalUrl || image.url} src={image.url} alt={image.title || `Foto di ${active.title}`} loading="lazy" referrerPolicy="no-referrer" />
               <small>{image.author || "Wikimedia Commons"}{image.license ? ` · ${image.license}` : ""}</small>
@@ -204,22 +209,25 @@ export function PoiMultimediaEnhancer() {
         </div>}
 
         <div>
-          <div className="media-section-title"><Video size={18} /><strong>Video incorporati</strong></div>
+          <div className="media-section-title"><Video size={18} /><strong>Video incorporati</strong>{details?.videos?.length ? <small> · {details.videos.length} risultati</small> : null}</div>
           {details?.videos && details.videos.length > 0 ? <div className="embedded-video-grid">
-            {details.videos.slice(0, 3).map((video) => <div key={video.id} className="embedded-video-card"><div className="embedded-video-frame"><iframe src={`https://www.youtube-nocookie.com/embed/${video.id}?playsinline=1`} title={video.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div><small>{video.title}{video.channel ? ` · ${video.channel}` : ""}</small></div>)}
+            {details.videos.slice(0, videoLimit).map((video) => <div key={video.id} className="embedded-video-card">{video.taggedVargaTour && <span className="varga-video-badge">★ Priorità Varga Tour</span>}<div className="embedded-video-frame"><iframe src={`https://www.youtube-nocookie.com/embed/${video.id}?playsinline=1`} title={video.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div><small>{video.title}{video.channel ? ` · ${video.channel}` : ""}</small></div>)}
+            {details.videos.length > videoLimit && <button type="button" className="load-more-media" onClick={() => setVideoLimit((limit) => Math.min(limit + 6, details.videos?.length || limit))}>Mostra altri video</button>}
           </div> : !loading && <a href={socialFallback[0]?.url} target="_blank" rel="noreferrer" className="external-media-search">Cerca video su YouTube <ExternalLink size={15} /></a>}
         </div>
 
         {embeddedSocials.length > 0 && <div>
           <div className="media-section-title"><Share2 size={18} /><strong>Contenuti dai social</strong><small> · incorporati dalla fonte originale</small></div>
           <div className="social-embed-grid">
-            {embeddedSocials.map((item) => <div className="social-embed-card" key={`${item.embedType}-${item.embedId}`}>
+            {visibleEmbeddedSocials.map((item) => <div className="social-embed-card" key={`${item.embedType}-${item.embedId}`}>
+              {item.taggedVargaTour && <span className="varga-video-badge">★ Priorità Varga Tour</span>}
               {item.embedType === "youtube" && <iframe className="social-video-landscape" src={`https://www.youtube-nocookie.com/embed/${item.embedId}?playsinline=1`} title={item.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />}
               {item.embedType === "tiktok-video" && <iframe className="social-video-portrait" src={`https://www.tiktok.com/player/v1/${item.embedId}`} title={item.title} loading="lazy" allow="fullscreen; autoplay" allowFullScreen />}
               {item.embedType === "tiktok-profile" && <blockquote className="tiktok-embed" cite={item.url} data-unique-id={item.embedId} data-embed-type="creator"><section><a href={item.url} target="_blank" rel="noreferrer">{item.handle || `@${item.embedId}`}</a></section></blockquote>}
               {item.embedType === "instagram-post" && <blockquote className="instagram-media" data-instgrm-permalink={item.url} data-instgrm-version="14"><a href={item.url} target="_blank" rel="noreferrer">Guarda il contenuto su Instagram</a></blockquote>}
               <a className="social-embed-source" href={item.url} target="_blank" rel="noreferrer">{item.platform} · fonte originale <ExternalLink size={13} /></a>
             </div>)}
+            {embeddedSocials.length > socialLimit && <button type="button" className="load-more-media" onClick={() => setSocialLimit((limit) => Math.min(limit + 4, embeddedSocials.length))}>Mostra altri contenuti social</button>}
           </div>
         </div>}
 

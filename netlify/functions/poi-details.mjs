@@ -16,7 +16,7 @@ const handler = async (request) => {
   try {
     const [article, commons, youtube, openstreetmap] = await Promise.all([
       resolveWikipediaArticle(title, lat, lng).catch(() => null),
-      loadCommonsImages(title),
+      loadCommonsImages(title, lat, lng),
       loadYoutube(title),
       Number.isFinite(lat) && Number.isFinite(lng) ? loadOpenStreetMap(title, lat, lng) : Promise.resolve(null),
     ]);
@@ -107,38 +107,53 @@ async function resolveWikipediaArticle(title, lat, lng) {
   };
 }
 
-async function loadCommonsImages(title) {
-  const params = new URLSearchParams({
-    action: "query", generator: "search", gsrsearch: `${title} filetype:bitmap`, gsrnamespace: "6", gsrlimit: "10",
-    prop: "imageinfo", iiprop: "url|extmetadata", iiurlwidth: "1100", format: "json", origin: "*",
-  });
+async function loadCommonsImages(title, lat, lng) {
+  const common = {
+    action: "query", prop: "imageinfo", iiprop: "url|extmetadata", iiurlwidth: "1400", format: "json", origin: "*",
+  };
+  const searches = [new URLSearchParams({
+    ...common, generator: "search", gsrsearch: `${title} filetype:bitmap`, gsrnamespace: "6", gsrlimit: "50",
+  })];
+  if (Number.isFinite(lat) && Number.isFinite(lng)) searches.push(new URLSearchParams({
+    ...common, generator: "geosearch", ggsprimary: "all", ggsnamespace: "6", ggsradius: "500",
+    ggscoord: `${lat}|${lng}`, ggslimit: "35",
+  }));
+
   try {
-    const response = await fetch(`${COMMONS_API}?${params}`, { signal: AbortSignal.timeout(9000) });
-    if (!response.ok) return [];
-    const data = await response.json();
-    return Object.values(data.query?.pages || {}).map((page) => {
+    const results = await Promise.allSettled(searches.map(async (params) => {
+      const response = await fetch(`${COMMONS_API}?${params}`, { signal: AbortSignal.timeout(10000) });
+      if (!response.ok) return [];
+      return Object.values((await response.json()).query?.pages || {});
+    }));
+    const seen = new Set();
+    return results.flatMap((result) => result.status === "fulfilled" ? result.value : []).map((page) => {
       const info = page.imageinfo?.[0];
       if (!info?.thumburl && !info?.url) return null;
       const meta = info.extmetadata || {};
+      const imageTitle = String(page.title || "").replace(/^File:/, "");
+      const searchable = [imageTitle, meta.ObjectName?.value, meta.ImageDescription?.value, meta.Categories?.value].map(stripHtml).join(" ");
       return {
         url: info.thumburl || info.url,
         originalUrl: info.url,
-        title: String(page.title || "").replace(/^File:/, ""),
+        title: imageTitle,
         author: stripHtml(meta.Artist?.value || "Wikimedia Commons"),
         license: meta.LicenseShortName?.value || "",
         sourceUrl: info.descriptionurl || `https://commons.wikimedia.org/wiki/${encodeURIComponent(page.title)}`,
+        taggedVargaTour: isVargaTourText(searchable),
+        relevance: similarity(imageTitle, title),
       };
-    }).filter(Boolean).slice(0, 8);
-  } catch {
-    return [];
-  }
+    }).filter((item) => item?.originalUrl && !seen.has(item.originalUrl) && seen.add(item.originalUrl))
+      .sort((a, b) => Number(b.taggedVargaTour) - Number(a.taggedVargaTour) || b.relevance - a.relevance)
+      .slice(0, 60);
+  } catch { return []; }
 }
 
 async function loadYoutube(title) {
   const apiKey = Netlify.env.get("YOUTUBE_API_KEY");
   if (!apiKey) return { configured: false, items: [] };
   const params = new URLSearchParams({
-    part: "snippet", type: "video", maxResults: "3", q: `${title} Italia storia visita guidata`,
+    part: "snippet", type: "video", maxResults: "25",
+    q: `${title} Italia visita guidata|${title} Varga Tour|#VargaTour ${title}`,
     relevanceLanguage: "it", regionCode: "IT", safeSearch: "strict", videoEmbeddable: "true", key: apiKey,
     videoSyndicated: "true",
   });
@@ -146,11 +161,17 @@ async function loadYoutube(title) {
     const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, { signal: AbortSignal.timeout(9000) });
     if (!response.ok) return { configured: true, items: [] };
     const data = await response.json();
-    return { configured: true, items: (data.items || []).map((item) => ({
-      id: item.id?.videoId,
-      title: item.snippet?.title || title,
-      channel: item.snippet?.channelTitle || "YouTube",
-    })).filter((item) => item.id) };
+    return { configured: true, items: (data.items || []).map((item) => {
+      const videoTitle = item.snippet?.title || title;
+      const channel = item.snippet?.channelTitle || "YouTube";
+      return {
+        id: item.id?.videoId,
+        title: videoTitle,
+        channel,
+        taggedVargaTour: isVargaTourText(`${videoTitle} ${channel} ${item.snippet?.description || ""}`),
+      };
+    }).filter((item) => item.id)
+      .sort((a, b) => Number(b.taggedVargaTour) - Number(a.taggedVargaTour)) };
   } catch {
     return { configured: true, items: [] };
   }
@@ -329,27 +350,35 @@ function socialFromUrl(link, kind = "linked") {
 function enrichSocialEmbed(item) {
   try {
     const url = new URL(item.url);
+    const base = item.kind !== "search" && isVargaTourText(`${item.title || ""} ${item.handle || ""} ${decodeURIComponent(url.href)}`)
+      ? { ...item, taggedVargaTour: true }
+      : item;
     if (item.platform === "YouTube") {
       const id = url.hostname === "youtu.be"
         ? url.pathname.split("/").filter(Boolean)[0]
         : url.searchParams.get("v") || url.pathname.match(/\/(?:shorts|embed)\/([^/?#]+)/)?.[1];
-      return id ? { ...item, embedType: "youtube", embedId: id } : item;
+      return id ? { ...base, embedType: "youtube", embedId: id } : base;
     }
     if (item.platform === "TikTok") {
       const videoId = url.pathname.match(/\/video\/(\d+)/)?.[1];
-      if (videoId) return { ...item, embedType: "tiktok-video", embedId: videoId };
+      if (videoId) return { ...base, embedType: "tiktok-video", embedId: videoId };
       const handle = url.pathname.match(/^\/@([^/?#]+)/)?.[1];
-      if (handle) return { ...item, embedType: "tiktok-profile", embedId: handle };
+      if (handle) return { ...base, embedType: "tiktok-profile", embedId: handle };
     }
     if (item.platform === "Instagram" && /^\/(?:p|reel|reels|tv)\//.test(url.pathname)) {
-      return { ...item, embedType: "instagram-post", embedId: url.href };
+      return { ...base, embedType: "instagram-post", embedId: url.href };
     }
+    return base;
   } catch {}
   return item;
 }
 function socialSearchItems(title) {
   const touristQuery = `${title} Italia guida turistica`;
+  const vargaQuery = `#VargaTour ${title}`;
   return [
+    { platform: "YouTube", title: "Cerca video #VargaTour", url: `https://www.youtube.com/results?search_query=${encodeURIComponent(vargaQuery)}`, kind: "search" },
+    { platform: "TikTok", title: "Cerca video #VargaTour", url: `https://www.tiktok.com/search?q=${encodeURIComponent(vargaQuery)}`, kind: "search" },
+    { platform: "Instagram", title: "Cerca foto e Reel #VargaTour", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(vargaQuery)}`, kind: "search" },
     { platform: "YouTube", title: "Cerca altri video", url: `https://www.youtube.com/results?search_query=${encodeURIComponent(touristQuery)}`, kind: "search" },
     { platform: "TikTok", title: "Cerca video del luogo", url: `https://www.tiktok.com/search?q=${encodeURIComponent(`${title} Italia`)}`, kind: "search" },
     { platform: "Instagram", title: "Cerca foto e Reel", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(title)}`, kind: "search" },
@@ -367,7 +396,7 @@ function dedupeSocial(items) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).sort((a, b) => socialKindScore(b.kind) - socialKindScore(a.kind)).slice(0, 12);
+  }).sort((a, b) => Number(b.taggedVargaTour) - Number(a.taggedVargaTour) || socialKindScore(b.kind) - socialKindScore(a.kind)).slice(0, 30);
 }
 function socialKindScore(kind) {
   return kind === "official" ? 30 : kind === "linked" ? 20 : 10;
@@ -383,6 +412,9 @@ function dedupeFacts(items) {
 }
 function normalize(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+function isVargaTourText(value) {
+  return /(?:#|\b)varga[\s_-]*tour\b/i.test(String(value || ""));
 }
 function similarity(a, b) {
   const aa = new Set(normalize(a).split(" ").filter((word) => word.length > 2));
