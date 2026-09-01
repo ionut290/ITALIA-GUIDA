@@ -4,9 +4,9 @@ import "./globals.css";
 import { PoiMultimediaEnhancer } from "@/components/poi-multimedia-enhancer";
 
 export const metadata: Metadata = {
-  title: "Italia Guida — I luoghi ti parlano",
+  title: "Varga Tour — I luoghi ti parlano",
   description:
-    "Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Italia con GPS, audio, fotografie e video.",
+    "Guida turistica intelligente per scoprire l’Italia con GPS, percorsi personalizzati, audio, orari, prenotazioni, fotografie e video.",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/favicon.svg",

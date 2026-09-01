@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowRight, BellRing, BookOpen, Check, ChevronLeft, ChevronRight, Compass,
-  ExternalLink, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
-  Play, Search, Sparkles, Square, Video, Volume2, Footprints, ZoomIn,
+  ArrowRight, BadgeCheck, BatteryLow, BellRing, BookOpen, Camera, Check, ChevronLeft, ChevronRight, CloudRain, Compass,
+  Download, ExternalLink, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
+  Play, Search, Share2, Shuffle, Sparkles, Square, Stamp, Video, Volume2, Footprints, WandSparkles, ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +72,33 @@ type OsmPoiItem = {
   lng: number;
   wikipediaTitle?: string;
   sourceUrl: string;
+};
+
+type SmartStop = {
+  id: string;
+  title: string;
+  category: string;
+  lat: number;
+  lng: number;
+  distance: number;
+  nearby?: NearbyPlace;
+  curated?: Place;
+};
+
+type VisitRecord = {
+  id: string;
+  title: string;
+  category: string;
+  visitedAt: string;
+  lat: number;
+  lng: number;
+};
+
+type TravelConditions = {
+  temperature?: number;
+  rainProbabilityNextHours?: number;
+  condition: "good" | "rain" | "severe";
+  message: string;
 };
 
 const commonsFile = (name: string) =>
@@ -224,6 +251,26 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function geoErrorMessage(error?: GeolocationPositionError) {
+  if (error?.code === 1) return "Posizione non autorizzata. Su iPhone apri Impostazioni → Privacy e sicurezza → Localizzazione → Varga Tour/Safari e scegli ‘Mentre usi l’app’.";
+  if (error?.code === 3) return "Il GPS impiega troppo tempo. Vai all’aperto, controlla che la localizzazione sia attiva e riprova.";
+  return "Posizione non disponibile. Controlla GPS e connessione, poi riprova.";
+}
+
+function smartInterestScore(place: { title: string; category?: string; extract?: string }, interests: string[]) {
+  if (!interests.length || interests.includes("tutto")) return 1;
+  const text = `${place.title} ${place.category || ""} ${place.extract || ""}`.toLowerCase();
+  const patterns: Record<string, RegExp> = {
+    storia: /storic|monument|castell|palazz|piazza|archeolog|torre/,
+    arte: /arte|muse|galleri|basilica|chiesa|cattedral|opera/,
+    natura: /parco|giardin|natura|panoram|lago|monte|collina/,
+    cibo: /mercato|cibo|gastronom|osteria|ristor|food|vino/,
+    famiglia: /parco|muse|zoo|acquario|bambin|science|scienza/,
+    misteri: /leggenda|mister|segreto|sotterrane|fantasm|curiosità/,
+  };
+  return interests.reduce((score, interest) => score + (patterns[interest]?.test(text) ? 3 : 0), 0);
+}
+
 function youtubeVideoId(value: string) {
   try {
     const url = new URL(value);
@@ -316,6 +363,22 @@ export default function Home() {
   const [mapViewport, setMapViewport] = useState<PoiMapViewport | null>(null);
   const [mapAreaLoading, setMapAreaLoading] = useState(false);
   const [mapAreaStatus, setMapAreaStatus] = useState("Ingrandisci una zona per caricare i luoghi di tutta Italia");
+  const [mapLayer, setMapLayer] = useState<"tourism" | "services">("tourism");
+  const [smartDuration, setSmartDuration] = useState(120);
+  const [smartInterests, setSmartInterests] = useState<string[]>(["tutto"]);
+  const [smartRoute, setSmartRoute] = useState<SmartStop[]>([]);
+  const [smartPlannerLoading, setSmartPlannerLoading] = useState(false);
+  const [travelConditions, setTravelConditions] = useState<TravelConditions | null>(null);
+  const [batteryLow, setBatteryLow] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
+  const [offlinePackReady, setOfflinePackReady] = useState(false);
+  const [visitHistory, setVisitHistory] = useState<VisitRecord[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { const saved = JSON.parse(localStorage.getItem("varga-tour-passport") || "[]"); return Array.isArray(saved) ? saved.slice(0, 500) : []; } catch { return []; }
+  });
+  const [surpriseIndex, setSurpriseIndex] = useState(0);
+  const [narrationMode, setNarrationMode] = useState<"breve" | "completa" | "curiosita">("completa");
+  const [timePortalReveal, setTimePortalReveal] = useState(52);
   const watchIdRef = useRef<number | null>(null);
   const lastSearchRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastMapAreaKeyRef = useRef("");
@@ -331,8 +394,25 @@ export default function Home() {
   }, []);
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
   useEffect(() => {
+    const updateOnline = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    type BatteryManager = { level: number; addEventListener: (name: string, listener: () => void) => void; removeEventListener: (name: string, listener: () => void) => void };
+    let battery: BatteryManager | null = null;
+    const updateBattery = () => setBatteryLow(Boolean(battery && battery.level <= .2));
+    const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryManager> };
+    nav.getBattery?.().then((value) => { battery = value; updateBattery(); battery.addEventListener("levelchange", updateBattery); }).catch(() => undefined);
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+      battery?.removeEventListener("levelchange", updateBattery);
+    };
+  }, []);
+  useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       setPhotoIndex(0);
+      setNarrationMode("completa");
+      setTimePortalReveal(52);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selected?.id]);
@@ -393,6 +473,23 @@ export default function Home() {
     setSelected(place);
     setPhotoIndex(0);
     void playSpeech(place.id, place.name, place.narration, 0.9);
+  }
+
+  function speakPlaceMode(place: Place, mode: "breve" | "completa" | "curiosita") {
+    setNarrationMode(mode);
+    const text = mode === "breve"
+      ? `${place.short} ${place.story.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ")}`
+      : mode === "curiosita"
+        ? `${place.curiosity} ${place.story}`
+        : place.narration;
+    void playSpeech(`${place.id}-${mode}`, place.name, text, mode === "breve" ? .94 : .9);
+  }
+
+  async function loadTravelConditions(lat: number, lng: number) {
+    try {
+      const response = await fetch(`/.netlify/functions/travel-conditions?lat=${lat}&lng=${lng}`);
+      if (response.ok) setTravelConditions(await response.json());
+    } catch { setTravelConditions(null); }
   }
 
   async function searchNearby(lat: number, lng: number) {
@@ -456,7 +553,7 @@ export default function Home() {
         .slice(0, 20);
       setNearbyPlaces(combined);
       const closest = combined[0];
-      if (closest && closest.distance <= 300 && !announcedRef.current.has(closest.pageid)) {
+      if (closest && closest.distance <= 90 && !announcedRef.current.has(closest.pageid)) {
         announcedRef.current.add(closest.pageid);
         void openNearby(closest);
       }
@@ -572,13 +669,14 @@ export default function Home() {
         setUserPosition(current);
         setAutoGuideActive(true);
         setLocationStatus("Guida automatica attiva");
+        void loadTravelConditions(current.lat, current.lng);
         const previous = lastSearchRef.current;
         if (!previous || distanceKm(previous.lat, previous.lng, current.lat, current.lng) >= 0.25) {
           lastSearchRef.current = current;
           void searchNearby(current.lat, current.lng);
         }
       },
-      () => { setNearbyError("Autorizza la posizione nelle impostazioni del telefono."); setLocationStatus("Posizione non autorizzata"); setAutoGuideActive(false); },
+      (error) => { setNearbyError(geoErrorMessage(error)); setLocationStatus("Posizione non autorizzata"); setAutoGuideActive(false); },
       { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 },
     );
   }
@@ -592,12 +690,110 @@ export default function Home() {
         setUserPosition(current);
         setLocationStatus("Luoghi aggiornati");
         void searchNearby(current.lat, current.lng);
+        void loadTravelConditions(current.lat, current.lng);
       },
-      () => setLocationStatus("Posizione non autorizzata"), { enableHighAccuracy: true, timeout: 10000 },
+      (error) => { setNearbyError(geoErrorMessage(error)); setLocationStatus("Posizione non autorizzata"); }, { enableHighAccuracy: true, timeout: 10000 },
     );
   }
 
-  async function loadMapArea(viewport: PoiMapViewport) {
+  async function getCurrentPosition() {
+    if (userPosition) return userPosition;
+    if (!navigator.geolocation) throw new Error("GPS non disponibile");
+    return new Promise<{ lat: number; lng: number }>((resolve, reject) => navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      reject,
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 },
+    ));
+  }
+
+  async function createSmartRoute() {
+    setSmartPlannerLoading(true);
+    setNearbyError("");
+    try {
+      const position = await getCurrentPosition();
+      setUserPosition(position);
+      const found = nearbyPlaces.length ? nearbyPlaces : await searchNearby(position.lat, position.lng);
+      void loadTravelConditions(position.lat, position.lng);
+      const maxStops = batteryLow ? Math.min(4, Math.max(2, Math.floor(smartDuration / 24))) : Math.min(14, Math.max(2, Math.floor(smartDuration / 22)));
+      const rainMode = travelConditions?.condition === "rain" || travelConditions?.condition === "severe";
+      const indoor = /muse|galleri|chiesa|basilica|palazz|bibliotec|teatro|mercato/i;
+      const route = found.filter((place) => !visitHistory.some((visit) => visit.id === `nearby-${place.pageid}`)).map<SmartStop>((place) => ({
+        id: `nearby-${place.pageid}`, title: place.title, category: place.category || "Luogo turistico", lat: place.lat, lng: place.lng,
+        distance: place.distance, nearby: place,
+      })).map((stop) => ({ stop, score: smartInterestScore({ title: stop.title, category: stop.category, extract: stop.nearby?.extract }, smartInterests) + (rainMode && indoor.test(`${stop.category} ${stop.title}`) ? 4 : 0) - stop.distance / 4000 }))
+        .sort((a, b) => b.score - a.score || a.stop.distance - b.stop.distance)
+        .slice(0, maxStops)
+        .map((item) => item.stop)
+        .sort((a, b) => a.distance - b.distance);
+      setSmartRoute(route);
+      if (!route.length) setNearbyError("Non ho trovato abbastanza tappe in questa zona. Prova ad aumentare la durata o selezionare ‘Tutto’. ");
+    } catch (error) {
+      const geoError = error && typeof error === "object" && "code" in error ? error as GeolocationPositionError : undefined;
+      setNearbyError(geoError ? geoErrorMessage(geoError) : "Per creare il percorso devi autorizzare la posizione.");
+    } finally { setSmartPlannerLoading(false); }
+  }
+
+  function toggleSmartInterest(value: string) {
+    setSmartInterests((current) => value === "tutto"
+      ? ["tutto"]
+      : current.includes(value)
+        ? (current.filter((item) => item !== value).length ? current.filter((item) => item !== value) : ["tutto"])
+        : [...current.filter((item) => item !== "tutto"), value]);
+  }
+
+  function openSmartStop(stop: SmartStop) {
+    if (stop.nearby) void openNearby(stop.nearby);
+    else if (stop.curated) setSelected(stop.curated);
+  }
+
+  function saveVisit(record: Omit<VisitRecord, "visitedAt">) {
+    setVisitHistory((current) => {
+      const next = [{ ...record, visitedAt: new Date().toISOString() }, ...current.filter((item) => item.id !== record.id)].slice(0, 500);
+      localStorage.setItem("varga-tour-passport", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function surpriseMe() {
+    const candidates = nearbyPlaces.filter((place) => !visitHistory.some((visit) => visit.id === `nearby-${place.pageid}`));
+    const place = candidates[surpriseIndex % Math.max(1, candidates.length)] || nearbyPlaces[0];
+    setSurpriseIndex((current) => current + 1);
+    if (place) void openNearby(place);
+    else { setNearbyError("Attiva la posizione per ricevere una sorpresa vicino a te."); locateUser(); }
+  }
+
+  async function shareText(title: string, text: string) {
+    try {
+      if (navigator.share) await navigator.share({ title, text, url: location.href });
+      else { await navigator.clipboard.writeText(`${title}\n${text}\n${location.href}`); setLocationStatus("Testo copiato"); }
+    } catch {}
+  }
+
+  async function shareActiveTour() {
+    const route = activeTourPlaces.map((place, index) => `${index + 1}. ${place.name}`).join("\n");
+    await shareText(`Varga Tour · ${activeTour.title}`, `${activeTour.description}\n\n${route}`);
+  }
+
+  async function downloadOfflinePack() {
+    try {
+      const registration = await navigator.serviceWorker?.ready;
+      registration?.active?.postMessage({ type: "CACHE_OFFLINE_PACK" });
+      setOfflinePackReady(true);
+    } catch { setOfflinePackReady(false); }
+  }
+
+  async function recognizeFromCamera() {
+    try {
+      const position = await getCurrentPosition();
+      setUserPosition(position);
+      const candidates = nearbyPlaces.length ? nearbyPlaces : await searchNearby(position.lat, position.lng);
+      const nearest = [...candidates].sort((a, b) => distanceKm(position.lat, position.lng, a.lat, a.lng) - distanceKm(position.lat, position.lng, b.lat, b.lng))[0];
+      if (nearest && distanceKm(position.lat, position.lng, nearest.lat, nearest.lng) <= 1.2) void openNearby(nearest);
+      else setNearbyError("Non riconosco con sicurezza il luogo. Spostati più vicino al monumento e riprova.");
+    } catch (error) { const geoError = error && typeof error === "object" && "code" in error ? error as GeolocationPositionError : undefined; setNearbyError(geoError ? geoErrorMessage(geoError) : "Autorizza la posizione per riconoscere il luogo fotografato."); }
+  }
+
+  async function loadMapArea(viewport: PoiMapViewport, requestedLayer = mapLayer) {
     setMapViewport(viewport);
     const intersectsItaly = viewport.north >= 35.2 && viewport.south <= 47.2 && viewport.east >= 6.3 && viewport.west <= 18.9;
     if (!intersectsItaly) {
@@ -617,8 +813,9 @@ export default function Home() {
 
     const key = [viewport.south, viewport.west, viewport.north, viewport.east]
       .map((value) => value.toFixed(3)).join(":");
-    if (key === lastMapAreaKeyRef.current) return;
-    lastMapAreaKeyRef.current = key;
+    const layerKey = `${requestedLayer}:${key}`;
+    if (layerKey === lastMapAreaKeyRef.current) return;
+    lastMapAreaKeyRef.current = layerKey;
     mapAreaRequestRef.current?.abort();
     const controller = new AbortController();
     mapAreaRequestRef.current = controller;
@@ -627,7 +824,7 @@ export default function Home() {
 
     try {
       const query = new URLSearchParams({
-        south: String(viewport.south), west: String(viewport.west), north: String(viewport.north), east: String(viewport.east), zoom: String(viewport.zoom),
+        south: String(viewport.south), west: String(viewport.west), north: String(viewport.north), east: String(viewport.east), zoom: String(viewport.zoom), layer: requestedLayer,
       });
       const response = await fetch(`/.netlify/functions/osm-pois?${query}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Ricerca non disponibile");
@@ -641,10 +838,10 @@ export default function Home() {
         lng: item.lng,
         distance: -1,
         category: item.category,
-        extract: "Punto di interesse presente nella banca dati OpenStreetMap. Apri la scheda per cercare descrizione, audio, fotografie e video disponibili.",
+        extract: requestedLayer === "services" ? "Servizio utile presente nella banca dati OpenStreetMap. Verifica dettagli, orari e indicazioni nella scheda." : "Punto di interesse presente nella banca dati OpenStreetMap. Apri la scheda per cercare descrizione, audio, fotografie e video disponibili.",
         pageUrl: item.sourceUrl,
       })));
-      setMapAreaStatus(`${items.length} luoghi visibili${data.truncated ? " · aumenta lo zoom per vederli tutti" : ""}`);
+      setMapAreaStatus(`${items.length} ${requestedLayer === "services" ? "servizi utili" : "luoghi"} visibili${data.truncated ? " · aumenta lo zoom per vederli tutti" : ""}`);
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       setMapAreaPlaces([]);
@@ -662,6 +859,8 @@ export default function Home() {
   }
   function markVisited(id: string) {
     setVisited((current) => current.includes(id) ? current : [...current, id]);
+    const place = activeTourPlaces.find((item) => item.id === id);
+    if (place) saveVisit({ id: place.id, title: place.name, category: place.category, lat: place.lat, lng: place.lng });
     if (currentStop < activeTourPlaces.length - 1) setCurrentStop((value) => value + 1);
   }
 
@@ -704,8 +903,8 @@ export default function Home() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => setActiveTab("scopri")} aria-label="Italia Guida, torna alla scoperta">
-          <span className="brand-mark">I</span><span><strong>Italia</strong><small>Guida</small></span>
+        <button className="brand" onClick={() => setActiveTab("scopri")} aria-label="Varga Tour, torna alla scoperta">
+          <span className="brand-mark">V</span><span><strong>Varga</strong><small>Tour</small></span>
         </button>
         <div className={`verified-pill ${autoGuideActive ? "live" : ""}`}><LocateFixed size={14} /> {autoGuideActive ? "GPS attivo · rilevamento vicino" : "GPS spento · attivalo quando vuoi"}</div>
       </header>
@@ -715,6 +914,7 @@ export default function Home() {
           <TabsTrigger value="scopri"><Compass /> Scopri</TabsTrigger>
           <TabsTrigger value="tour"><Footprints /> Tour</TabsTrigger>
           <TabsTrigger value="mappa"><Map /> Mappa</TabsTrigger>
+          <TabsTrigger value="passaporto"><Stamp /> Passaporto</TabsTrigger>
         </TabsList>
 
         <TabsContent value="scopri" className="content-area">
@@ -723,13 +923,30 @@ export default function Home() {
             <div className="hero-copy">
               <p className="eyebrow"><MapPin size={15} /> Tutta Italia, passo dopo passo</p>
               <h1>L&apos;Italia ti parla quando le passi accanto.</h1>
-              <p>Attiva il GPS: l&apos;app trova i luoghi culturali vicini, apre la scheda e prepara audio, fotografia e video quando disponibile.</p>
+              <p>Dimmi quanto tempo hai: Varga Tour trova i luoghi vicini, crea il percorso e ti accompagna con audio, foto, video, orari e prenotazioni.</p>
               <div className="hero-actions">
-                <Button size="lg" onClick={toggleAutoGuide} className="primary-action">{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Attiva guida automatica</>}</Button>
-                <Button size="lg" variant="outline" onClick={locateUser}><LocateFixed /> Cerca una volta</Button>
+                <Button size="lg" onClick={() => document.getElementById("smart-planner")?.scrollIntoView({ behavior: "smooth" })} className="primary-action"><WandSparkles /> Guidami da qui</Button>
+                <Button size="lg" variant="outline" onClick={toggleAutoGuide}>{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Guida automatica</>}</Button>
+                <Button size="lg" variant="outline" onClick={surpriseMe}><Shuffle /> Sorprendimi</Button>
+                <label className="camera-recognition"><Camera size={17} /> Cosa sto guardando?<input type="file" accept="image/*" capture="environment" onChange={() => void recognizeFromCamera()} /></label>
               </div>
-              <div className="tour-facts"><span><LocateFixed /> entro 300 m</span><span><MapPin /> fino a 10 km</span><span><Headphones /> audio italiano</span></div>
+              <div className="tour-facts"><span><LocateFixed /> avvio entro 90 m</span><span><MapPin /> tutta Italia</span><span><Headphones /> 3 racconti</span></div>
             </div>
+          </section>
+
+          <section className="section-block smart-planner" id="smart-planner">
+            <div className="smart-planner-copy"><p className="eyebrow"><WandSparkles /> Percorso intelligente</p><h2>Quanto tempo hai?</h2><p>Il percorso parte dalla tua posizione, evita le tappe già viste e si adatta a interessi, pioggia, batteria e connessione.</p></div>
+            <div className="smart-options">
+              <div><small>Durata</small><div className="choice-row">{[{ value: 30, label: "30 min" }, { value: 60, label: "1 ora" }, { value: 120, label: "2 ore" }, { value: 240, label: "Mezza giornata" }, { value: 480, label: "Giornata" }].map((item) => <button key={item.value} className={smartDuration === item.value ? "selected" : ""} onClick={() => setSmartDuration(item.value)}>{item.label}</button>)}</div></div>
+              <div><small>Interessi</small><div className="choice-row">{[{ value: "tutto", label: "Tutto" }, { value: "storia", label: "Storia" }, { value: "arte", label: "Arte" }, { value: "misteri", label: "Misteri" }, { value: "natura", label: "Natura" }, { value: "cibo", label: "Cibo" }, { value: "famiglia", label: "Famiglia" }].map((item) => <button key={item.value} className={smartInterests.includes(item.value) ? "selected" : ""} onClick={() => toggleSmartInterest(item.value)}>{item.label}</button>)}</div></div>
+              <Button size="lg" className="primary-action smart-create" onClick={() => void createSmartRoute()} disabled={smartPlannerLoading}>{smartPlannerLoading ? "Creo il percorso…" : <><Navigation /> Crea il mio percorso</>}</Button>
+            </div>
+            <div className="adaptive-status">
+              {travelConditions && <span className={travelConditions.condition}><CloudRain /> {travelConditions.message}{Number.isFinite(travelConditions.temperature) ? ` · ${Math.round(travelConditions.temperature!)}°` : ""}</span>}
+              {batteryLow && <span className="warning"><BatteryLow /> Batteria bassa: percorso compatto</span>}
+              {!isOnline && <span className="warning"><Download /> Offline: uso i contenuti salvati</span>}
+            </div>
+            {smartRoute.length > 0 && <div className="smart-route-result"><div className="smart-route-title"><div><BadgeCheck /><span><strong>Il tuo Varga Tour è pronto</strong><small>{smartRoute.length} tappe · circa {smartDuration} minuti</small></span></div><button onClick={() => void shareText("Il mio Varga Tour", smartRoute.map((stop, index) => `${index + 1}. ${stop.title}`).join("\n"))}><Share2 /> Condividi</button></div><div className="smart-stop-list">{smartRoute.map((stop, index) => <button key={stop.id} onClick={() => openSmartStop(stop)}><span>{index + 1}</span><div><small>{stop.category}{stop.distance >= 0 ? ` · ${stop.distance < 1000 ? `${Math.round(stop.distance)} m` : `${(stop.distance / 1000).toFixed(1)} km`}` : ""}</small><strong>{stop.title}</strong></div><ChevronRight /></button>)}</div></div>}
           </section>
 
           <section className="section-block nearby-section">
@@ -794,7 +1011,7 @@ export default function Home() {
           <section className="tour-workspace">
             <div className="tour-intro">
               <p className="eyebrow"><Footprints /> Itinerario a piedi</p><h1>{activeTour.title}</h1>
-              <p>{activeTour.description}</p>
+              <p>{activeTour.description}</p><button className="tour-share" onClick={() => void shareActiveTour()}><Share2 /> Modalità gruppo · condividi percorso</button>
               <div className="progress-label"><span>{visited.length} di {activeTourPlaces.length} tappe visitate</span><strong>{Math.round((visited.length / activeTourPlaces.length) * 100)}%</strong></div>
               <div className="progress-track"><span style={{ width: `${(visited.length / activeTourPlaces.length) * 100}%` }} /></div>
             </div>
@@ -823,7 +1040,7 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="mappa" className="content-area map-content">
-          <section className="map-header"><div><p className="eyebrow"><Map /> Monumenti e punti di interesse</p><h1>Mappa turistica d’Italia</h1><p>Sposta e ingrandisci la mappa: i pin vengono caricati automaticamente in ogni zona italiana.</p></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></section>
+          <section className="map-header"><div><p className="eyebrow"><Map /> Monumenti e punti di interesse</p><h1>Mappa turistica d’Italia</h1><p>Sposta e ingrandisci la mappa: scegli tra luoghi da visitare e servizi utili.</p></div><div className="map-header-actions"><div className="map-layer-switch"><button className={mapLayer === "tourism" ? "active" : ""} onClick={() => { setMapLayer("tourism"); lastMapAreaKeyRef.current = ""; if (mapViewport) void loadMapArea(mapViewport, "tourism"); }}>Da visitare</button><button className={mapLayer === "services" ? "active" : ""} onClick={() => { setMapLayer("services"); lastMapAreaKeyRef.current = ""; if (mapViewport) void loadMapArea(mapViewport, "services"); }}>Servizi utili</button></div><Button variant="outline" onClick={locateUser}><LocateFixed /> {locationStatus}</Button></div></section>
           <section className="map-layout">
             <div className="map-frame">
               <PoiMap points={mapDisplayPoints} selectedId={mapPlace?.id} userPosition={userPosition} onSelect={selectMapPoint} onViewportChange={(viewport) => void loadMapArea(viewport)} />
@@ -834,10 +1051,17 @@ export default function Home() {
           </section>
         </TabsContent>
 
+        <TabsContent value="passaporto" className="content-area">
+          <section className="passport-hero"><div><p className="eyebrow"><Stamp /> Il tuo viaggio</p><h1>Passaporto Varga Tour</h1><p>Ogni luogo visitato diventa un timbro e alimenta automaticamente il tuo diario di viaggio.</p></div><div className="passport-total"><strong>{visitHistory.length}</strong><span>{visitHistory.length === 1 ? "luogo visitato" : "luoghi visitati"}</span></div></section>
+          <section className="passport-actions"><button onClick={() => void downloadOfflinePack()}><Download /><span><strong>{offlinePackReady ? "Pacchetto offline pronto" : "Scarica guida offline"}</strong><small>Mappa base, itinerari, racconti e immagini essenziali</small></span></button><button onClick={() => window.print()}><BookOpen /><span><strong>Salva il diario in PDF</strong><small>Usa la stampa del telefono e scegli “Salva come PDF”</small></span></button><button onClick={() => void shareText("Il mio Passaporto Varga Tour", visitHistory.map((item) => `${item.title} · ${new Date(item.visitedAt).toLocaleDateString("it-IT")}`).join("\n"))}><Share2 /><span><strong>Condividi il viaggio</strong><small>Invia tappe e ricordi ad amici e famiglia</small></span></button></section>
+          <section className="passport-content"><div className="passport-heading"><div><p className="eyebrow">Diario automatico</p><h2>I tuoi timbri</h2></div>{visitHistory.length >= 3 && <span className="earned-badge"><BadgeCheck /> Esploratore Varga</span>}</div>{visitHistory.length === 0 ? <div className="passport-empty"><Stamp /><strong>Il primo timbro ti aspetta</strong><span>Inizia un tour o apri una scheda quando sei vicino al luogo e premi “Segna visitato”.</span><Button onClick={() => setActiveTab("scopri")} className="primary-action">Scopri vicino a te</Button></div> : <div className="stamp-grid">{visitHistory.map((visit, index) => <article key={`${visit.id}-${visit.visitedAt}`}><span className="stamp-number">{String(index + 1).padStart(2, "0")}</span><Stamp /><small>{visit.category}</small><strong>{visit.title}</strong><time dateTime={visit.visitedAt}>{new Date(visit.visitedAt).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" })}</time><a href={`https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`} target="_blank" rel="noreferrer">Rivedi sulla mappa <ExternalLink /></a></article>)}</div>}</section>
+        </TabsContent>
+
         <TabsList className="mobile-tabs" aria-label="Navigazione mobile">
           <TabsTrigger value="scopri"><Compass /><span>Scopri</span></TabsTrigger>
           <TabsTrigger value="tour"><Footprints /><span>Tour</span></TabsTrigger>
           <TabsTrigger value="mappa"><Map /><span>Mappa</span></TabsTrigger>
+          <TabsTrigger value="passaporto"><Stamp /><span>Viaggio</span></TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -868,7 +1092,7 @@ export default function Home() {
               </section>
               <div className="source-actions"><a href={selectedNearby.pageUrl} target="_blank" rel="noreferrer">Leggi la fonte completa <ExternalLink /></a><span>{selectedNearby.attribution || "Testo: Wikipedia · media: Wikimedia Commons. Le ricostruzioni generate con AI sono sempre indicate."}</span></div>
             </div>
-            <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selectedNearby.lat},${selectedNearby.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button></SheetFooter>
+            <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selectedNearby.lat},${selectedNearby.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button><Button size="lg" variant="outline" onClick={() => saveVisit({ id: `nearby-${selectedNearby.pageid}`, title: selectedNearby.title, category: selectedNearby.category || "Luogo turistico", lat: selectedNearby.lat, lng: selectedNearby.lng })}><Stamp /> Segna visitato</Button></SheetFooter>
           </>}
         </SheetContent>
       </Sheet>
@@ -906,8 +1130,9 @@ export default function Home() {
                   </>
                 )}
               </div>
+              {selected.photos.some((photo) => photo.kind === "photo") && selected.photos.some((photo) => photo.kind === "ai") && <section className="time-portal"><div className="media-heading"><WandSparkles /><div><strong>Portale nel tempo</strong><span>Scorri per confrontare il luogo reale con la ricostruzione storica AI</span></div></div><div className="time-portal-stage"><img src={selected.photos.find((photo) => photo.kind === "photo")!.src} alt={`${selected.name} oggi`} /><div className="time-portal-past" style={{ clipPath: `inset(0 ${100 - timePortalReveal}% 0 0)` }}><img src={selected.photos.find((photo) => photo.kind === "ai")!.src} alt={`Ricostruzione storica illustrativa di ${selected.name}`} /><span>Ricostruzione AI</span></div><i style={{ left: `${timePortalReveal}%` }} /></div><input type="range" min="0" max="100" value={timePortalReveal} onChange={(event) => setTimePortalReveal(Number(event.target.value))} aria-label="Confronta fotografia attuale e ricostruzione storica" /><small>La ricostruzione è illustrativa e non rappresenta una fotografia storica.</small></section>}
               <div data-poi-multimedia-host />
-              <div className="audio-box"><Headphones /><div><strong>Voce narrativa naturale</strong><span>Voce italiana selezionata automaticamente · circa {Math.max(2, Math.ceil(selected.narration.split(/\s+/).length / 125))} minuti</span></div><Button size="icon-lg" onClick={() => speak(selected)} aria-label={speakingId === selected.id ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === selected.id ? <Square /> : <Play />}</Button></div>
+              <section className="narration-modes"><div className="media-heading"><Headphones /><div><strong>Scegli come ascoltare</strong><span>Tre racconti diversi dello stesso luogo</span></div></div><div className="narration-choice">{([{ id: "breve", label: "In 60 secondi", note: "Essenziale" }, { id: "completa", label: "Storia completa", note: `Circa ${Math.max(2, Math.ceil(selected.narration.split(/\s+/).length / 125))} min` }, { id: "curiosita", label: "Curiosità e misteri", note: "Il lato insolito" }] as const).map((mode) => <button key={mode.id} className={narrationMode === mode.id ? "selected" : ""} onClick={() => speakPlaceMode(selected, mode.id)}><span><strong>{mode.label}</strong><small>{mode.note}</small></span>{speakingId === `${selected.id}-${mode.id}` ? <Square /> : <Play />}</button>)}</div></section>
               <article><h3>La storia</h3><p>{selected.story}</p></article>
               <article className="curiosity"><Sparkles /><div><h3>Lo sapevi?</h3><p>{selected.curiosity}</p></div></article>
               {selected.video && (
@@ -919,12 +1144,13 @@ export default function Home() {
               )}
               <div className="info-row"><span>Accesso esterno</span><strong>{selected.free ? "Gratuito" : "Ingresso interno a pagamento"}</strong></div>
             </div>
-            <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button><Button size="lg" variant="outline" onClick={() => { setMapPlaceId(selected.id); setActiveTab("mappa"); setSelected(null); }}><Map /> Mostra sulla mappa</Button></SheetFooter>
+            <SheetFooter><Button size="lg" asChild className="primary-action"><a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer"><Navigation /> Naviga verso il luogo</a></Button><Button size="lg" variant="outline" onClick={() => saveVisit({ id: selected.id, title: selected.name, category: selected.category, lat: selected.lat, lng: selected.lng })}><Stamp /> Segna visitato</Button><Button size="lg" variant="outline" onClick={() => { setMapPlaceId(selected.id); setActiveTab("mappa"); setSelected(null); }}><Map /> Mappa</Button></SheetFooter>
           </>}
         </SheetContent>
       </Sheet>
 
-      <footer className="site-footer"><div><strong>Italia Guida</strong><span>Guida nazionale automatica con contenuti multimediali e AI sempre dichiarata.</span></div><p>I luoghi vicini e le schede sono caricati da Wikimedia. Il GPS resta sul dispositivo e viene usato soltanto per ordinare e rilevare i punti vicini.</p><a href="https://it.wikipedia.org" target="_blank" rel="noreferrer">Fonte nazionale: Wikipedia <ExternalLink /></a></footer>
+      <form name="manager-content" method="POST" data-netlify="true" data-netlify-honeypot="website-check" hidden><input type="hidden" name="form-name" value="manager-content" /><input name="luogo" /><input name="coordinate" /><input name="website-check" /><input name="email" /><input name="sito-ufficiale" /><input name="prenotazione" /><input name="orari" /><textarea name="media-ufficiali" /></form>
+      <footer className="site-footer"><div><strong>Varga Tour</strong><span>Guida nazionale automatica con contenuti multimediali e AI sempre dichiarata.</span></div><p>I luoghi vicini e le schede sono caricati da fonti aperte e ufficiali. Il GPS resta sul dispositivo e viene usato soltanto per ordinare e rilevare i punti vicini.</p><a href="https://it.wikipedia.org" target="_blank" rel="noreferrer">Fonte nazionale: Wikipedia <ExternalLink /></a></footer>
     </main>
   );
 }

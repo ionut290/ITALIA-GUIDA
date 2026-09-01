@@ -1,12 +1,19 @@
-# Italia Guida
+# Varga Tour
 
-Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Italia.
+Guida turistica intelligente per scoprire monumenti, attività e servizi vicini in tutta Italia.
 
 ## Funzioni
 
 - rilevamento GPS mentre l'app è aperta;
 - ricerca dei punti culturali entro 10 km;
-- apertura automatica della scheda entro 300 metri;
+- apertura automatica della scheda entro 90 metri;
+- itinerari personalizzati per durata, interessi, meteo e batteria;
+- orari di apertura, stato indicativo aperto/chiuso, prezzi e prenotazione ufficiale;
+- foto, video, sito e social pubblicati dal gestore, separati dalle fonti della comunità;
+- modulo verificato per consentire ai gestori di proporre aggiornamenti ufficiali;
+- tre modalità narrative, Portale nel tempo, Sorprendimi e riconoscimento contestuale;
+- Passaporto Varga Tour, diario automatico, condivisione, PDF e pacchetto offline;
+- mappa separata dei servizi utili: bagni, fontanelle, farmacie, ospedali, parcheggi e ricariche;
 - mappa Leaflet nazionale con caricamento automatico dei monumenti e POI OpenStreetMap nell’area visibile, oltre alla posizione GPS;
 - audioguida italiana con selezione automatica della voce più naturale, ritmo e pause narrative;
 - schede estese con dati incrociati da Wikipedia, Wikidata, Wikimedia Commons e OpenStreetMap;

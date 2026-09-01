@@ -4,10 +4,10 @@ export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Italia Guida",
-    short_name: "Italia",
+    name: "Varga Tour",
+    short_name: "Varga Tour",
     description:
-      "Guida turistica automatica per i luoghi culturali vicini in tutta Italia.",
+      "Guida turistica intelligente per scoprire luoghi, attività e itinerari in tutta Italia.",
     start_url: "/",
     display: "standalone",
     background_color: "#f4efe5",

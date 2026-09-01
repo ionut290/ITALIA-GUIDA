@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+
 const WIKI_API = "https://it.wikipedia.org/w/api.php";
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
@@ -20,10 +22,19 @@ const handler = async (request) => {
       loadYoutube(title),
       Number.isFinite(lat) && Number.isFinite(lng) ? loadOpenStreetMap(title, lat, lng) : Promise.resolve(null),
     ]);
-    const wikidata = article?.wikibaseItem ? await loadWikidata(article.wikibaseItem) : null;
+    const likelyOfficialWebsite = openstreetmap?.officialWebsite
+      || article?.externalLinks?.find((link) => sourceScore(link) >= 20)
+      || "";
+    const [wikidata, likelyOfficialPage] = await Promise.all([
+      article?.wikibaseItem ? loadWikidata(article.wikibaseItem) : Promise.resolve(null),
+      likelyOfficialWebsite ? loadOfficialPage(likelyOfficialWebsite).catch(() => null) : Promise.resolve(null),
+    ]);
+    const officialWebsite = wikidata?.officialWebsite || likelyOfficialWebsite;
+    const officialPage = likelyOfficialPage && sameHost(likelyOfficialWebsite, officialWebsite) ? likelyOfficialPage : null;
     const socialMedia = dedupeSocial([
       ...(wikidata?.socialMedia || []),
       ...(openstreetmap?.socialMedia || []),
+      ...(officialPage?.socialMedia || []),
       ...(article?.socialMedia || []),
       ...socialSearchItems(article?.title || title),
     ]);
@@ -33,7 +44,7 @@ const handler = async (request) => {
       article?.wikibaseItem ? { title: "Wikidata", url: `https://www.wikidata.org/wiki/${article.wikibaseItem}`, kind: "dati" } : null,
       { title: "Wikimedia Commons", url: `https://commons.wikimedia.org/w/index.php?search=${encodeURIComponent(article?.title || title)}&title=Special:MediaSearch&type=image`, kind: "foto" },
       openstreetmap?.sourceUrl ? { title: "OpenStreetMap", url: openstreetmap.sourceUrl, kind: "mappa e dati" } : null,
-      (wikidata?.officialWebsite || openstreetmap?.officialWebsite) ? { title: "Sito ufficiale", url: wikidata?.officialWebsite || openstreetmap?.officialWebsite, kind: "fonte ufficiale" } : null,
+      officialWebsite ? { title: "Sito ufficiale", url: officialWebsite, kind: "fonte ufficiale" } : null,
       ...((article?.externalLinks || []).slice(0, 6).map((link) => ({ title: domainLabel(link), url: link, kind: sourceScore(link) >= 20 ? "fonte istituzionale" : "approfondimento" }))),
     ].filter(Boolean));
 
@@ -47,7 +58,9 @@ const handler = async (request) => {
       videos: youtube.items,
       youtubeConfigured: youtube.configured,
       facts: dedupeFacts([...(wikidata?.facts || []), ...(openstreetmap?.facts || [])]),
-      officialWebsite: wikidata?.officialWebsite || openstreetmap?.officialWebsite || "",
+      officialWebsite,
+      operational: buildOperational(openstreetmap, officialPage, officialWebsite),
+      officialMedia: buildOfficialMedia(openstreetmap, officialPage, socialMedia, officialWebsite),
       sources,
       socialMedia,
     }, 200, 86400);
@@ -256,6 +269,17 @@ async function loadOpenStreetMap(title, lat, lng) {
       facts,
       officialWebsite: tags.website || tags["contact:website"] || "",
       sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+      operator: tags.operator || tags.brand || tags.owner || "",
+      openingHours: tags.opening_hours || "",
+      bookingUrl: firstHttpUrl(tags["website:booking"], tags["reservation:website"], tags["booking:website"], tags["tickets:website"], tags["contact:booking"], tags["contact:website"]),
+      reservation: tags.reservation || tags.booking || "",
+      phone: tags["contact:phone"] || tags.phone || "",
+      email: tags["contact:email"] || tags.email || "",
+      fee: tags.fee || "",
+      charge: tags.charge || "",
+      wheelchair: tags.wheelchair || "",
+      officialImages: splitMediaUrls(tags.image || tags["image:0"] || ""),
+      officialVideos: splitMediaUrls(tags.video || tags["contact:video"] || ""),
       socialMedia: [
         socialFromTag("Instagram", tags["contact:instagram"] || tags.instagram),
         socialFromTag("Facebook", tags["contact:facebook"] || tags.facebook),
@@ -268,6 +292,174 @@ async function loadOpenStreetMap(title, lat, lng) {
   } catch {
     return null;
   }
+}
+
+async function loadOfficialPage(rawUrl) {
+  const url = safePublicUrl(rawUrl);
+  if (!url) return null;
+  const { response, finalUrl } = await fetchPublicHtml(url);
+  if (!response.ok || !String(response.headers.get("content-type") || "").includes("text/html")) return null;
+  const declaredSize = Number(response.headers.get("content-length") || 0);
+  if (declaredSize > 1500000) return null;
+  const html = (await response.text()).slice(0, 900000);
+  const baseUrl = new URL(finalUrl);
+  const links = extractHtmlLinks(html, baseUrl);
+  const bookingLink = links
+    .filter((item) => /prenot|booking|ticket|bigliett|acquist|visita|reservation/i.test(`${item.text} ${item.url}`))
+    .sort((a, b) => bookingLinkScore(b) - bookingLinkScore(a))[0]?.url || "";
+  const socialMedia = links.map((item) => socialFromUrl(item.url, "official")).filter(Boolean);
+  const image = absoluteHtmlUrl(metaContent(html, "og:image") || metaContent(html, "twitter:image"), baseUrl);
+  const videoCandidates = [
+    metaContent(html, "og:video"),
+    metaContent(html, "og:video:url"),
+    ...links.filter((item) => /youtube\.com\/(watch|shorts)|youtu\.be\/|vimeo\.com\//i.test(item.url)).map((item) => item.url),
+  ].map((item) => absoluteHtmlUrl(item, baseUrl)).filter(Boolean);
+  return {
+    pageUrl: finalUrl,
+    bookingLink,
+    image,
+    videos: [...new Set(videoCandidates)].slice(0, 8),
+    socialMedia: dedupeSocial(socialMedia).slice(0, 12),
+    title: stripHtml(metaContent(html, "og:site_name") || matchHtml(html, /<title[^>]*>([\s\S]*?)<\/title>/i)) || domainLabel(finalUrl),
+  };
+}
+
+async function fetchPublicHtml(initialUrl) {
+  let current = initialUrl;
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    await assertPublicHost(current);
+    const response = await fetch(current, {
+      headers: { "User-Agent": "Varga-Tour/1.0 (+https://github.com/ionut290/ITALIA-GUIDA)", Accept: "text/html,application/xhtml+xml" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(6500),
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return { response, finalUrl: current };
+    const location = response.headers.get("location");
+    const next = location ? absoluteHtmlUrl(location, new URL(current)) : "";
+    if (!next) throw new Error("Reindirizzamento ufficiale non valido");
+    current = next;
+  }
+  throw new Error("Troppi reindirizzamenti dal sito ufficiale");
+}
+
+async function assertPublicHost(rawUrl) {
+  const host = new URL(rawUrl).hostname;
+  const addresses = await Promise.race([
+    lookup(host, { all: true, verbatim: true }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("DNS timeout")), 1800)),
+  ]);
+  if (!Array.isArray(addresses) || !addresses.length || addresses.some((item) => isPrivateAddress(item.address))) throw new Error("Host ufficiale non pubblico");
+}
+
+function isPrivateAddress(address) {
+  const value = String(address || "").toLowerCase();
+  if (value === "::1" || value === "::" || value.startsWith("fe80:") || value.startsWith("fc") || value.startsWith("fd")) return true;
+  const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+  const ipv4 = mapped || (/^\d+\.\d+\.\d+\.\d+$/.test(value) ? value : "");
+  if (!ipv4) return false;
+  const [a, b] = ipv4.split(".").map(Number);
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+}
+
+function buildOperational(osm, officialPage, officialWebsite) {
+  const openingHours = osm?.openingHours || "";
+  const reservation = String(osm?.reservation || "").toLowerCase();
+  const directBookingUrl = osm?.bookingUrl || officialPage?.bookingLink || "";
+  const bookingUrl = directBookingUrl || officialWebsite || "";
+  const bookingMode = directBookingUrl
+    ? "Prenotazione online"
+    : officialWebsite
+      ? "Verifica disponibilità e prenota sul sito ufficiale"
+    : osm?.phone
+      ? "Prenotazione telefonica"
+      : reservation === "yes" || reservation === "required"
+        ? "Prenotazione richiesta: verifica con il gestore"
+        : "Verifica sul sito ufficiale";
+  return {
+    openingHours,
+    openingHoursSource: openingHours ? osm?.sourceUrl || "" : "",
+    bookingUrl,
+    bookingMode,
+    reservationRequired: reservation === "yes" || reservation === "required" || reservation === "mandatory",
+    phone: osm?.phone || "",
+    email: osm?.email || "",
+    priceInfo: osm?.charge || (osm?.fee === "no" ? "Ingresso gratuito" : osm?.fee === "yes" ? "Ingresso a pagamento" : ""),
+    wheelchair: osm?.wheelchair || "",
+    operator: osm?.operator || officialPage?.title || "",
+    sourceUrl: osm?.sourceUrl || officialWebsite || "",
+  };
+}
+
+function buildOfficialMedia(osm, officialPage, socialMedia, officialWebsite) {
+  const images = [
+    ...(osm?.officialImages || []).map((url) => ({ url, sourceUrl: osm.sourceUrl, title: "Immagine dichiarata nella scheda ufficiale" })),
+    ...(officialPage?.image ? [{ url: officialPage.image, sourceUrl: officialPage.pageUrl, title: "Immagine pubblicata sul sito ufficiale" }] : []),
+  ].filter((item) => safePublicUrl(item.url));
+  const videos = [
+    ...(osm?.officialVideos || []),
+    ...(officialPage?.videos || []),
+  ].map((url) => officialVideo(url)).filter(Boolean);
+  return {
+    managerName: osm?.operator || officialPage?.title || "Gestore del luogo",
+    sourceUrl: officialPage?.pageUrl || officialWebsite || osm?.sourceUrl || "",
+    images: dedupeLinks(images).slice(0, 10),
+    videos: dedupeLinks(videos).slice(0, 10),
+    socialMedia: socialMedia.filter((item) => item.kind === "official").slice(0, 12),
+  };
+}
+
+function officialVideo(url) {
+  const social = socialFromUrl(url, "official");
+  if (social?.embedType) return { url, title: "Video pubblicato dal gestore", embedType: social.embedType, embedId: social.embedId };
+  return safePublicUrl(url) ? { url, title: "Video pubblicato dal gestore" } : null;
+}
+
+function metaContent(html, property) {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return matchHtml(html, new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]+content=["']([^"']+)["'][^>]*>`, "i"))
+    || matchHtml(html, new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escaped}["'][^>]*>`, "i"));
+}
+
+function matchHtml(html, expression) {
+  return String(html || "").match(expression)?.[1]?.trim() || "";
+}
+
+function extractHtmlLinks(html, baseUrl) {
+  const items = [];
+  const pattern = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for (const match of html.matchAll(pattern)) {
+    const url = absoluteHtmlUrl(match[1], baseUrl);
+    if (url) items.push({ url, text: stripHtml(match[2]).slice(0, 120) });
+    if (items.length >= 500) break;
+  }
+  return dedupeLinks(items);
+}
+
+function bookingLinkScore(item) {
+  const value = `${item.text} ${item.url}`.toLowerCase();
+  return (/prenota|book now|acquista|biglietti/.test(value) ? 30 : 0) + (/ticket|booking|reservation/.test(value) ? 20 : 0) - (/privacy|cookie/.test(value) ? 50 : 0);
+}
+
+function safePublicUrl(raw) {
+  try {
+    const url = new URL(String(raw || "").trim());
+    if (!/^https?:$/.test(url.protocol)) return "";
+    const host = url.hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || isPrivateAddress(host)) return "";
+    return url.href;
+  } catch { return ""; }
+}
+
+function absoluteHtmlUrl(raw, baseUrl) {
+  try { return safePublicUrl(new URL(String(raw || "").replaceAll("&amp;", "&"), baseUrl).href); } catch { return ""; }
+}
+
+function firstHttpUrl(...values) {
+  return values.map((value) => safePublicUrl(value)).find(Boolean) || "";
+}
+
+function splitMediaUrls(value) {
+  return String(value || "").split(/[;|]/).map((item) => safePublicUrl(item.trim())).filter(Boolean).slice(0, 10);
 }
 
 function claimValue(claim) {
@@ -306,6 +498,9 @@ function sourceScore(link) {
 }
 function domainLabel(link) {
   try { return new URL(link).hostname.replace(/^www\./, ""); } catch { return "Approfondimento"; }
+}
+function sameHost(a, b) {
+  try { return new URL(a).hostname.replace(/^www\./, "") === new URL(b).hostname.replace(/^www\./, ""); } catch { return false; }
 }
 function socialProfile(platform, rawValue, buildUrl) {
   const value = String(rawValue || "").trim().replace(/^@/, "");

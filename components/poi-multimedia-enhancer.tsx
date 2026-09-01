@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Images, LoaderCircle, Newspaper, Share2, Video, X, ZoomIn } from "lucide-react";
+import { BadgeCheck, CalendarClock, ExternalLink, Images, LoaderCircle, Mail, Newspaper, Phone, Share2, Ticket, Video, X, ZoomIn } from "lucide-react";
 
 type ImageItem = { url: string; originalUrl?: string; title?: string; author?: string; license?: string; sourceUrl?: string; taggedVargaTour?: boolean };
 type VideoItem = { id: string; title: string; channel?: string; taggedVargaTour?: boolean };
@@ -27,12 +27,73 @@ type PoiDetails = {
   youtubeConfigured?: boolean;
   facts?: FactItem[];
   officialWebsite?: string;
+  operational?: {
+    openingHours?: string;
+    openingHoursSource?: string;
+    bookingUrl?: string;
+    bookingMode?: string;
+    reservationRequired?: boolean;
+    phone?: string;
+    email?: string;
+    priceInfo?: string;
+    wheelchair?: string;
+    operator?: string;
+    sourceUrl?: string;
+  };
+  officialMedia?: {
+    managerName?: string;
+    sourceUrl?: string;
+    images?: Array<{ url: string; sourceUrl?: string; title?: string }>;
+    videos?: Array<{ url: string; title: string; embedType?: string; embedId?: string }>;
+    socialMedia?: SocialItem[];
+  };
   sources?: SourceItem[];
   socialMedia?: SocialItem[];
 };
 
 type ActivePoi = { title: string; lat?: number; lng?: number; host: HTMLElement };
 type PreviewPhoto = { src: string; alt: string };
+
+const OSM_DAYS: Record<string, number> = { Su: 0, Mo: 1, Tu: 2, We: 3, Th: 4, Fr: 5, Sa: 6 };
+
+function openingState(raw?: string) {
+  const value = String(raw || "").trim();
+  if (!value) return { tone: "unknown", label: "Orari non pubblicati", detail: "Controlla sempre il sito ufficiale prima della visita." };
+  if (value === "24/7") return { tone: "open", label: "Aperto 24 ore su 24", detail: "Orario dichiarato: 24/7" };
+  const now = new Date();
+  const currentDay = now.getDay();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  let understood = false;
+  let appliesToday = false;
+  let openNow = false;
+  for (const rule of value.split(";")) {
+    const match = rule.trim().match(/^((?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?(?:,(?:Mo|Tu|We|Th|Fr|Sa|Su))*)\s+(.+)$/);
+    if (!match) continue;
+    const days = new Set<number>();
+    for (const token of match[1].split(",")) {
+      const [from, to] = token.split("-");
+      const start = OSM_DAYS[from];
+      const end = OSM_DAYS[to || from];
+      if (start === undefined || end === undefined) continue;
+      for (let index = start; ; index = (index + 1) % 7) { days.add(index); if (index === end) break; }
+    }
+    understood = true;
+    if (!days.has(currentDay)) continue;
+    appliesToday = true;
+    if (/\boff\b/i.test(match[2])) continue;
+    for (const interval of match[2].split(",")) {
+      const hours = interval.trim().match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+      if (!hours) continue;
+      const start = Number(hours[1]) * 60 + Number(hours[2]);
+      const end = Number(hours[3]) * 60 + Number(hours[4]);
+      if ((end >= start && currentMinutes >= start && currentMinutes < end) || (end < start && (currentMinutes >= start || currentMinutes < end))) openNow = true;
+    }
+  }
+  if (!understood) return { tone: "unknown", label: "Orari disponibili", detail: value };
+  if (openNow) return { tone: "open", label: "Probabilmente aperto ora", detail: value };
+  if (appliesToday) return { tone: "closed", label: "Probabilmente chiuso ora", detail: value };
+  return { tone: "closed", label: "Chiuso oggi secondo gli orari", detail: value };
+}
 
 export function PoiMultimediaEnhancer() {
   const [active, setActive] = useState<ActivePoi | null>(null);
@@ -115,6 +176,7 @@ export function PoiMultimediaEnhancer() {
   const socialMedia = details?.socialMedia?.length ? details.socialMedia : socialFallback;
   const embeddedSocials = useMemo(() => socialMedia.filter((item) => item.embedType && item.embedId), [socialMedia]);
   const visibleEmbeddedSocials = useMemo(() => embeddedSocials.slice(0, socialLimit), [embeddedSocials, socialLimit]);
+  const visitStatus = useMemo(() => openingState(details?.operational?.openingHours), [details?.operational?.openingHours]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => { setPreview(null); setVideoLimit(6); setSocialLimit(4); });
@@ -189,6 +251,38 @@ export function PoiMultimediaEnhancer() {
   return <>
     {createPortal(
       <section className="multisource-panel" aria-label="Foto, video e approfondimenti">
+        {!loading && <section className="visit-planner" aria-label="Orari e prenotazione">
+          <div className="visit-planner-heading">
+            <CalendarClock size={22} />
+            <div><strong>Organizza la visita</strong><span>Orari, ingresso e prenotazione dalla fonte più affidabile disponibile</span></div>
+            <span className={`open-state ${visitStatus.tone}`}>{visitStatus.label}</span>
+          </div>
+          <div className="visit-data-grid">
+            <div><small>Orari dichiarati</small><strong>{visitStatus.detail}</strong>{details?.operational?.openingHoursSource && <a href={details.operational.openingHoursSource} target="_blank" rel="noreferrer">Verifica fonte <ExternalLink size={12} /></a>}</div>
+            <div><small>Ingresso</small><strong>{details?.operational?.priceInfo || "Prezzi non pubblicati"}</strong></div>
+            <div><small>Prenotazione</small><strong>{details?.operational?.bookingMode || "Verifica con il gestore"}</strong>{details?.operational?.reservationRequired && <span className="required-booking">Prenotazione richiesta</span>}</div>
+            <div><small>Gestore</small><strong>{details?.operational?.operator || details?.officialMedia?.managerName || "Informazione non disponibile"}</strong></div>
+          </div>
+          <div className="visit-actions">
+            {details?.operational?.bookingUrl && <a className="booking-action" href={details.operational.bookingUrl} target="_blank" rel="noreferrer"><Ticket size={17} /> Prenota sul sito ufficiale <ExternalLink size={14} /></a>}
+            {details?.operational?.phone && <a href={`tel:${details.operational.phone.replace(/[^+\d]/g, "")}`}><Phone size={16} /> Chiama</a>}
+            {details?.operational?.email && <a href={`mailto:${details.operational.email}`}><Mail size={16} /> Scrivi</a>}
+            {details?.officialWebsite && <a href={details.officialWebsite} target="_blank" rel="noreferrer">Sito ufficiale <ExternalLink size={14} /></a>}
+          </div>
+          <p className="hours-disclaimer">Gli orari possono cambiare per festività, eventi o lavori. Prima di partire controlla sempre la fonte ufficiale.</p>
+        </section>}
+
+        {!loading && details?.officialMedia && ((details.officialMedia.images?.length || 0) > 0 || (details.officialMedia.videos?.length || 0) > 0 || (details.officialMedia.socialMedia?.length || 0) > 0) && <section className="official-manager-panel">
+          <div className="official-manager-heading"><BadgeCheck size={22} /><div><strong>Pubblicato dal gestore</strong><span>Contenuti provenienti dal sito o dai canali ufficiali di {details.officialMedia.managerName || active.title}</span></div></div>
+          {details.officialMedia.images && details.officialMedia.images.length > 0 && <div className="official-manager-gallery">{details.officialMedia.images.map((item, index) => <a key={`${item.url}-${index}`} href={item.sourceUrl || item.url} target="_blank" rel="noreferrer"><span className="official-content-badge"><BadgeCheck size={12} /> Fonte ufficiale</span><span className="photo-open-hint" data-open-photo><ZoomIn size={14} /> Apri</span><img data-full-image={item.url} src={item.url} alt={item.title || `Foto ufficiale di ${active.title}`} loading="lazy" referrerPolicy="no-referrer" /></a>)}</div>}
+          {details.officialMedia.videos && details.officialMedia.videos.length > 0 && <div className="official-video-grid">{details.officialMedia.videos.map((item, index) => <div key={`${item.url}-${index}`} className="official-video-card">
+            {item.embedType === "youtube" && item.embedId ? <iframe src={`https://www.youtube-nocookie.com/embed/${item.embedId}?playsinline=1`} title={item.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /> : item.embedType === "tiktok-video" && item.embedId ? <iframe src={`https://www.tiktok.com/player/v1/${item.embedId}`} title={item.title} loading="lazy" allow="fullscreen; autoplay" allowFullScreen /> : <a href={item.url} target="_blank" rel="noreferrer"><Video size={20} /> Guarda il video ufficiale <ExternalLink size={14} /></a>}
+          </div>)}</div>}
+          {details.officialMedia.socialMedia && details.officialMedia.socialMedia.length > 0 && <div className="official-social-links">{details.officialMedia.socialMedia.map((item) => <a key={`${item.platform}-${item.url}`} href={item.url} target="_blank" rel="noreferrer"><BadgeCheck size={14} /> {item.platform} ufficiale <ExternalLink size={12} /></a>)}</div>}
+        </section>}
+
+        {!loading && <details className="manager-contribute"><summary><BadgeCheck size={17} /> Sei il gestore di questo luogo?</summary><div><strong>Pubblica informazioni e contenuti ufficiali</strong><p>Invia orari, link di prenotazione, sito, foto e video. Prima della pubblicazione Varga Tour verifica che la richiesta provenga dal gestore.</p><form name="manager-content" method="POST" data-netlify="true" data-netlify-honeypot="website-check" action="/?gestore=inviato"><input type="hidden" name="form-name" value="manager-content" /><input type="hidden" name="luogo" value={active.title} /><input type="hidden" name="coordinate" value={`${active.lat || ""},${active.lng || ""}`} /><input className="hidden-honeypot" name="website-check" tabIndex={-1} autoComplete="off" /><label>Email ufficiale<input required type="email" name="email" placeholder="nome@sito-ufficiale.it" /></label><label>Sito o pagina ufficiale<input required type="url" name="sito-ufficiale" placeholder="https://…" /></label><label>Link prenotazione<input type="url" name="prenotazione" placeholder="https://…" /></label><label>Orari di apertura<input name="orari" placeholder="Es. lun–ven 09:00–18:00" /></label><label>Foto o video pubblicati dal gestore<textarea name="media-ufficiali" rows={3} placeholder="Incolla uno o più link ufficiali" /></label><button type="submit"><BadgeCheck size={16} /> Invia per la verifica</button></form></div></details>}
+
         <div className="multisource-heading">
           <Images size={20} aria-hidden="true" />
           <div><strong>Foto e video del luogo</strong><span>Contenuti incorporati in Varga Tour e fonti sempre riconoscibili</span></div>

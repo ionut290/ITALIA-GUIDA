@@ -9,6 +9,7 @@ const handler = async (request) => {
   const north = clamp(finiteNumber(url.searchParams.get("north")), ITALY.south, ITALY.north);
   const east = clamp(finiteNumber(url.searchParams.get("east")), ITALY.west, ITALY.east);
   const zoom = finiteNumber(url.searchParams.get("zoom"));
+  const layer = url.searchParams.get("layer") === "services" ? "services" : "tourism";
   if ([south, west, north, east, zoom].some((value) => value === null) || south >= north || west >= east) {
     return json({ error: "Area non valida" }, 400);
   }
@@ -16,11 +17,18 @@ const handler = async (request) => {
   if (north - south > 1.6 || east - west > 2.2) return json({ error: "Area troppo estesa: aumenta lo zoom" }, 400);
 
   const bbox = `${south.toFixed(5)},${west.toFixed(5)},${north.toFixed(5)},${east.toFixed(5)}`;
-  const query = `[out:json][timeout:20];
+  const query = layer === "services" ? `[out:json][timeout:20];
 (
-  nwr["name"]["tourism"~"^(attraction|museum|gallery|viewpoint|artwork)$"](${bbox});
+  nwr["amenity"~"^(toilets|drinking_water|pharmacy|hospital|clinic|police|parking|charging_station|bus_station)$"](${bbox});
+  nwr["tourism"="information"](${bbox});
+);
+out center tags qt 300;` : `[out:json][timeout:20];
+(
+  nwr["name"]["tourism"~"^(attraction|museum|gallery|viewpoint|artwork|zoo|aquarium|theme_park)$"](${bbox});
   nwr["name"]["historic"](${bbox});
   nwr["name"]["amenity"="place_of_worship"](${bbox});
+  nwr["name"]["amenity"~"^(theatre|cinema)$"](${bbox});
+  nwr["name"]["leisure"~"^(water_park|park|sports_centre|escape_game|amusement_arcade)$"](${bbox});
   nwr["name"]["man_made"="lighthouse"](${bbox});
   nwr["name"]["natural"="peak"](${bbox});
 );
@@ -36,7 +44,7 @@ out center tags qt 300;`;
     if (!response.ok) throw new Error(`Overpass ${response.status}`);
     const data = await response.json();
     const items = (Array.isArray(data.elements) ? data.elements : []).map(normalize).filter(Boolean);
-    return json({ items, truncated: items.length >= 300 }, 200, 900);
+    return json({ items, truncated: items.length >= 300, layer }, 200, 900);
   } catch (error) {
     console.error("OpenStreetMap POI:", error);
     return json({ error: "Punti turistici temporaneamente non disponibili" }, 502);
@@ -49,13 +57,15 @@ function normalize(element) {
   const tags = element.tags || {};
   const lat = finiteNumber(element.lat ?? element.center?.lat);
   const lng = finiteNumber(element.lon ?? element.center?.lon);
-  const name = tags["name:it"] || tags.name;
+  const category = categoryFor(tags);
+  const isUsefulService = /^(Bagni pubblici|Fontanella|Farmacia|Ospedale|Clinica|Polizia|Parcheggio|Ricarica elettrica|Stazione autobus|Informazioni turistiche)$/.test(category);
+  const name = tags["name:it"] || tags.name || (isUsefulService ? category : "");
   if (!name || lat === null || lng === null) return null;
   const wikipediaTitle = typeof tags.wikipedia === "string" && tags.wikipedia.startsWith("it:") ? tags.wikipedia.slice(3) : "";
   return {
     id: `osm-${element.type}-${element.id}`,
     name,
-    category: categoryFor(tags),
+    category,
     lat,
     lng,
     wikipediaTitle,
@@ -66,10 +76,30 @@ function normalize(element) {
 }
 
 function categoryFor(tags) {
+  if (tags.amenity === "toilets") return "Bagni pubblici";
+  if (tags.amenity === "drinking_water") return "Fontanella";
+  if (tags.amenity === "pharmacy") return "Farmacia";
+  if (tags.amenity === "hospital") return "Ospedale";
+  if (tags.amenity === "clinic") return "Clinica";
+  if (tags.amenity === "police") return "Polizia";
+  if (tags.amenity === "parking") return "Parcheggio";
+  if (tags.amenity === "charging_station") return "Ricarica elettrica";
+  if (tags.amenity === "bus_station") return "Stazione autobus";
+  if (tags.tourism === "information") return "Informazioni turistiche";
   if (tags.tourism === "museum") return "Museo";
   if (tags.tourism === "gallery") return "Galleria";
   if (tags.tourism === "viewpoint") return "Punto panoramico";
   if (tags.tourism === "artwork") return "Opera d’arte";
+  if (tags.tourism === "zoo") return "Zoo";
+  if (tags.tourism === "aquarium") return "Acquario";
+  if (tags.tourism === "theme_park") return "Parco divertimenti";
+  if (tags.amenity === "theatre") return "Teatro";
+  if (tags.amenity === "cinema") return "Cinema";
+  if (tags.leisure === "water_park") return "Parco acquatico";
+  if (tags.leisure === "park") return "Parco";
+  if (tags.leisure === "sports_centre") return "Centro sportivo";
+  if (tags.leisure === "escape_game") return "Escape room";
+  if (tags.leisure === "amusement_arcade") return "Sala giochi";
   if (tags.amenity === "place_of_worship") return "Luogo di culto";
   if (tags.man_made === "lighthouse") return "Faro";
   if (tags.natural === "peak") return "Cima panoramica";
