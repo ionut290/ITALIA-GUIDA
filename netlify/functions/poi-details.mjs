@@ -7,8 +7,10 @@ const handler = async (request) => {
 
   const url = new URL(request.url);
   const title = (url.searchParams.get("title") || "").trim().slice(0, 180);
-  const lat = Number(url.searchParams.get("lat"));
-  const lng = Number(url.searchParams.get("lng"));
+  const latValue = url.searchParams.get("lat");
+  const lngValue = url.searchParams.get("lng");
+  const lat = latValue === null ? NaN : Number(latValue);
+  const lng = lngValue === null ? NaN : Number(lngValue);
   if (title.length < 2) return json({ error: "Titolo non valido" }, 400);
 
   try {
@@ -19,6 +21,12 @@ const handler = async (request) => {
       Number.isFinite(lat) && Number.isFinite(lng) ? loadOpenStreetMap(title, lat, lng) : Promise.resolve(null),
     ]);
     const wikidata = article?.wikibaseItem ? await loadWikidata(article.wikibaseItem) : null;
+    const socialMedia = dedupeSocial([
+      ...(wikidata?.socialMedia || []),
+      ...(openstreetmap?.socialMedia || []),
+      ...(article?.socialMedia || []),
+      ...socialSearchItems(article?.title || title),
+    ]);
 
     const sources = dedupeLinks([
       article?.pageUrl ? { title: "Wikipedia", url: article.pageUrl, kind: "enciclopedia" } : null,
@@ -41,6 +49,7 @@ const handler = async (request) => {
       facts: dedupeFacts([...(wikidata?.facts || []), ...(openstreetmap?.facts || [])]),
       officialWebsite: wikidata?.officialWebsite || openstreetmap?.officialWebsite || "",
       sources,
+      socialMedia,
     }, 200, 86400);
   } catch (error) {
     console.error("POI details:", error);
@@ -58,7 +67,7 @@ async function resolveWikipediaArticle(title, lat, lng) {
   const search = new URLSearchParams({
     action: "query", generator: "search", gsrsearch: title, gsrnamespace: "0", gsrlimit: "5",
     prop: "extracts|pageprops|info|extlinks", exintro: "1", explaintext: "1", inprop: "url",
-    ellimit: "20", redirects: "1", format: "json", origin: "*",
+    ellimit: "50", redirects: "1", format: "json", origin: "*",
   });
   try {
     const searchResponse = await fetch(`${WIKI_API}?${search}`, { signal: AbortSignal.timeout(4000) });
@@ -72,7 +81,7 @@ async function resolveWikipediaArticle(title, lat, lng) {
 
   const params = new URLSearchParams({
     action: "query", prop: "extracts|pageprops|info|extlinks", titles: resolved,
-    exintro: "1", explaintext: "1", inprop: "url", ellimit: "20", redirects: "1",
+    exintro: "1", explaintext: "1", inprop: "url", ellimit: "50", redirects: "1",
     format: "json", origin: "*",
   });
   let data;
@@ -86,13 +95,15 @@ async function resolveWikipediaArticle(title, lat, lng) {
   const page = Object.values(data.query?.pages || {})[0];
   if (!page || page.missing !== undefined) return null;
 
+  const externalLinks = (page.extlinks || []).map((item) => item["*"]).filter(Boolean);
   return {
     title: page.title,
     extract: page.extract || "",
     description: "",
     pageUrl: page.fullurl || `https://it.wikipedia.org/wiki/${encodeURIComponent(String(page.title).replaceAll(" ", "_"))}`,
     wikibaseItem: page.pageprops?.wikibase_item || "",
-    externalLinks: (page.extlinks || []).map((item) => item["*"]).filter(isUsefulExternalLink).sort((a, b) => sourceScore(b) - sourceScore(a)),
+    externalLinks: externalLinks.filter(isUsefulExternalLink).sort((a, b) => sourceScore(b) - sourceScore(a)),
+    socialMedia: externalLinks.map((link) => socialFromUrl(link, "linked")).filter(Boolean),
   };
 }
 
@@ -129,6 +140,7 @@ async function loadYoutube(title) {
   const params = new URLSearchParams({
     part: "snippet", type: "video", maxResults: "3", q: `${title} Italia storia visita guidata`,
     relevanceLanguage: "it", regionCode: "IT", safeSearch: "strict", videoEmbeddable: "true", key: apiKey,
+    videoSyndicated: "true",
   });
   try {
     const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`, { signal: AbortSignal.timeout(9000) });
@@ -168,7 +180,15 @@ async function loadWikidata(id) {
       if (values.length) facts.push({ label, value: [...new Set(values)].slice(0, 3).join(", ") });
     }
     if (coordinate) facts.push({ label: "Coordinate", value: coordinate });
-    return { officialWebsite: typeof website === "string" ? website : "", facts };
+    const socialMedia = [
+      socialProfile("Instagram", claimValue(entity.claims?.P2003?.[0]), (value) => `https://www.instagram.com/${encodeURIComponent(value)}/`),
+      socialProfile("Facebook", claimValue(entity.claims?.P2013?.[0]), (value) => `https://www.facebook.com/${encodeURIComponent(value)}`),
+      socialProfile("YouTube", claimValue(entity.claims?.P2397?.[0]), (value) => `https://www.youtube.com/channel/${encodeURIComponent(value)}`),
+      socialProfile("TikTok", claimValue(entity.claims?.P7085?.[0]), (value) => `https://www.tiktok.com/@${encodeURIComponent(value)}`),
+      socialProfile("X", claimValue(entity.claims?.P2002?.[0]), (value) => `https://x.com/${encodeURIComponent(value)}`),
+      socialProfile("Flickr", claimValue(entity.claims?.P3267?.[0]), (value) => `https://www.flickr.com/people/${encodeURIComponent(value)}`),
+    ].filter(Boolean);
+    return { officialWebsite: typeof website === "string" ? website : "", facts, socialMedia };
   } catch {
     return null;
   }
@@ -215,6 +235,14 @@ async function loadOpenStreetMap(title, lat, lng) {
       facts,
       officialWebsite: tags.website || tags["contact:website"] || "",
       sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
+      socialMedia: [
+        socialFromTag("Instagram", tags["contact:instagram"] || tags.instagram),
+        socialFromTag("Facebook", tags["contact:facebook"] || tags.facebook),
+        socialFromTag("YouTube", tags["contact:youtube"] || tags.youtube),
+        socialFromTag("TikTok", tags["contact:tiktok"] || tags.tiktok),
+        socialFromTag("X", tags["contact:twitter"] || tags.twitter),
+        socialFromTag("Flickr", tags["contact:flickr"] || tags.flickr),
+      ].filter(Boolean),
     };
   } catch {
     return null;
@@ -258,9 +286,70 @@ function sourceScore(link) {
 function domainLabel(link) {
   try { return new URL(link).hostname.replace(/^www\./, ""); } catch { return "Approfondimento"; }
 }
+function socialProfile(platform, rawValue, buildUrl) {
+  const value = String(rawValue || "").trim().replace(/^@/, "");
+  if (!value) return null;
+  return { platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(value), handle: platform === "YouTube" ? "" : `@${value}`, kind: "official" };
+}
+function socialFromTag(platform, rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) {
+    const parsed = socialFromUrl(value, "official");
+    return parsed || { platform, title: `Profilo ufficiale ${platform}`, url: value, kind: "official" };
+  }
+  const clean = value.replace(/^@/, "");
+  const builders = {
+    Instagram: (item) => `https://www.instagram.com/${encodeURIComponent(item)}/`,
+    Facebook: (item) => `https://www.facebook.com/${encodeURIComponent(item)}`,
+    YouTube: (item) => item.startsWith("UC") ? `https://www.youtube.com/channel/${encodeURIComponent(item)}` : `https://www.youtube.com/@${encodeURIComponent(item)}`,
+    TikTok: (item) => `https://www.tiktok.com/@${encodeURIComponent(item)}`,
+    X: (item) => `https://x.com/${encodeURIComponent(item)}`,
+    Flickr: (item) => `https://www.flickr.com/people/${encodeURIComponent(item)}`,
+  };
+  const buildUrl = builders[platform];
+  return buildUrl ? { platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(clean), handle: platform === "YouTube" ? "" : `@${clean}`, kind: "official" } : null;
+}
+function socialFromUrl(link, kind = "linked") {
+  try {
+    const url = new URL(link);
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    let platform = "";
+    if (host === "youtu.be" || host.endsWith("youtube.com")) platform = "YouTube";
+    else if (host.endsWith("instagram.com")) platform = "Instagram";
+    else if (host.endsWith("tiktok.com")) platform = "TikTok";
+    else if (host.endsWith("facebook.com") || host === "fb.com") platform = "Facebook";
+    else if (host === "x.com" || host.endsWith("twitter.com")) platform = "X";
+    else if (host.endsWith("flickr.com")) platform = "Flickr";
+    if (!platform) return null;
+    const isPost = /\/(watch|shorts|reel|reels|p|video|videos)\b/i.test(url.pathname) || host === "youtu.be";
+    return { platform, title: isPost ? `Contenuto su ${platform}` : `Profilo su ${platform}`, url: url.href, kind };
+  } catch { return null; }
+}
+function socialSearchItems(title) {
+  const touristQuery = `${title} Italia guida turistica`;
+  return [
+    { platform: "YouTube", title: "Cerca altri video", url: `https://www.youtube.com/results?search_query=${encodeURIComponent(touristQuery)}`, kind: "search" },
+    { platform: "TikTok", title: "Cerca video del luogo", url: `https://www.tiktok.com/search?q=${encodeURIComponent(`${title} Italia`)}`, kind: "search" },
+    { platform: "Instagram", title: "Cerca foto e Reel", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(title)}`, kind: "search" },
+  ];
+}
 function dedupeLinks(items) {
   const seen = new Set();
   return items.filter((item) => item?.url && !seen.has(item.url) && seen.add(item.url)).slice(0, 12);
+}
+function dedupeSocial(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item?.url || !item?.platform) return false;
+    const key = String(item.url).replace(/\/$/, "").toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => socialKindScore(b.kind) - socialKindScore(a.kind)).slice(0, 12);
+}
+function socialKindScore(kind) {
+  return kind === "official" ? 30 : kind === "linked" ? 20 : 10;
 }
 function dedupeFacts(items) {
   const seen = new Set();

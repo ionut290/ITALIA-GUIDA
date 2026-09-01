@@ -13,6 +13,8 @@ Guida turistica automatica per scoprire i luoghi culturali vicini in tutta Itali
 - gallerie fino a 8 fotografie documentarie, video e navigazione;
 - audioguide originali izi.TRAVEL quando disponibili;
 - video Wikimedia e YouTube incorporati quando disponibili;
+- account ufficiali e contenuti collegati da YouTube, Instagram, TikTok, Facebook, X e Flickr, mantenuti sulla piattaforma originale;
+- ricerche social dirette per ogni monumento, anche senza chiavi API;
 - itinerari editoriali completi per Bologna;
 - ricostruzioni generate con AI sempre dichiarate e separate dalle fotografie reali.
 
@@ -31,5 +33,7 @@ La versione base funziona senza chiavi API usando Wikipedia, Wikimedia Commons e
 
 - `IZI_TRAVEL_API_KEY`: audioguide e media izi.TRAVEL. La chiave va richiesta a izi.TRAVEL e usata nel rispetto delle condizioni del fornitore.
 - `YOUTUBE_API_KEY`: ricerca di video incorporabili. È facoltativa e soggetta alla quota gratuita del progetto Google.
+
+Gli account social ufficiali vengono ricavati, quando presenti, da Wikidata, Wikipedia e OpenStreetMap. Foto e video social non vengono copiati sui server dell’app: si aprono o si riproducono dalla fonte originale, così autore e provenienza rimangono visibili.
 
 Le chiavi restano nelle funzioni Netlify e non vengono mai incluse nel codice inviato al browser. Se non sono configurate, l’app continua a funzionare con Wikipedia, Wikimedia Commons e sintesi vocale del dispositivo.

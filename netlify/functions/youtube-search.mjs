@@ -8,6 +8,7 @@ const handler = async (request) => {
   const query = new URLSearchParams({
     part: "snippet", type: "video", maxResults: "3", q: `${queryText} storia visita guidata`,
     relevanceLanguage: "it", regionCode: "IT", safeSearch: "strict", videoEmbeddable: "true", key: apiKey,
+    videoSyndicated: "true",
   });
   try {
     const response = await fetch(`https://www.googleapis.com/youtube/v3/search?${query}`, { signal: AbortSignal.timeout(9000) });

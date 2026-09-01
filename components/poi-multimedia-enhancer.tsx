@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Images, LoaderCircle, Newspaper, Video } from "lucide-react";
+import { ExternalLink, Images, LoaderCircle, Newspaper, Share2, Video } from "lucide-react";
 
 type ImageItem = { url: string; originalUrl?: string; title?: string; author?: string; license?: string; sourceUrl?: string };
 type VideoItem = { id: string; title: string; channel?: string };
 type SourceItem = { title: string; url: string; kind?: string };
 type FactItem = { label: string; value: string };
+type SocialItem = {
+  platform: "YouTube" | "Instagram" | "TikTok" | "Facebook" | "X" | "Flickr";
+  title: string;
+  url: string;
+  handle?: string;
+  kind?: "official" | "linked" | "search";
+};
 type PoiDetails = {
   title: string;
   summary?: string;
@@ -18,6 +25,7 @@ type PoiDetails = {
   facts?: FactItem[];
   officialWebsite?: string;
   sources?: SourceItem[];
+  socialMedia?: SocialItem[];
 };
 
 type ActivePoi = { title: string; lat?: number; lng?: number; host: HTMLElement };
@@ -92,7 +100,12 @@ export function PoiMultimediaEnhancer() {
     return () => controller.abort();
   }, [active]);
 
-  const youtubeSearch = useMemo(() => active ? `https://www.youtube.com/results?search_query=${encodeURIComponent(`${active.title} guida turistica storia`)}` : "", [active]);
+  const socialFallback = useMemo<SocialItem[]>(() => active ? [
+    { platform: "YouTube", title: "Cerca video del luogo", url: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${active.title} guida turistica storia`)}`, kind: "search" },
+    { platform: "TikTok", title: "Cerca video del luogo", url: `https://www.tiktok.com/search?q=${encodeURIComponent(`${active.title} Italia`)}`, kind: "search" },
+    { platform: "Instagram", title: "Cerca foto e Reel", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(active.title)}`, kind: "search" },
+  ] : [], [active]);
+  const socialMedia = details?.socialMedia?.length ? details.socialMedia : socialFallback;
   if (!active) return null;
 
   return createPortal(
@@ -122,8 +135,20 @@ export function PoiMultimediaEnhancer() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}><Video size={18} /><strong>Video YouTube</strong></div>
         {details?.videos && details.videos.length > 0 ? <div style={{ display: "grid", gap: 12 }}>
           {details.videos.slice(0, 3).map((video) => <div key={video.id}><div style={{ position: "relative", paddingTop: "56.25%", overflow: "hidden", borderRadius: 12, background: "#000" }}><iframe src={`https://www.youtube-nocookie.com/embed/${video.id}`} title={video.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }} /></div><small style={{ display: "block", marginTop: 5, opacity: .7 }}>{video.title}{video.channel ? ` · ${video.channel}` : ""}</small></div>)}
-        </div> : !loading && <a href={youtubeSearch} target="_blank" rel="noreferrer" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Cerca video su YouTube <ExternalLink size={15} /></a>}
+        </div> : !loading && <a href={socialFallback[0]?.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Cerca video su YouTube <ExternalLink size={15} /></a>}
       </div>
+
+      {!loading && socialMedia.length > 0 && <div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 7 }}><Share2 size={18} /><strong>Social e contenuti originali</strong></div>
+        <p className="social-source-note">Foto e video restano sulla piattaforma originale, con autore e collegamento alla fonte. Gli account ufficiali vengono mostrati per primi quando sono disponibili.</p>
+        <div className="social-source-grid">
+          {socialMedia.map((item) => <a key={`${item.platform}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" data-platform={item.platform.toLowerCase()}>
+            <span className="social-source-mark" aria-hidden="true">{item.platform.slice(0, 1)}</span>
+            <span className="social-source-copy"><strong>{item.title}</strong><small>{item.platform}{item.handle ? ` · ${item.handle}` : item.kind === "official" ? " · account ufficiale" : item.kind === "linked" ? " · fonte collegata" : " · ricerca esterna"}</small></span>
+            <ExternalLink size={15} aria-hidden="true" />
+          </a>)}
+        </div>
+      </div>}
 
       {details?.sources && details.sources.length > 0 && <div>
         <strong style={{ display: "block", marginBottom: 7 }}>Fonti consultate</strong>

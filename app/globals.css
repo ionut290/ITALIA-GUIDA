@@ -281,6 +281,21 @@ h1, h2, h3, p { margin-top: 0; }
 .source-gallery a { min-width: 0; color: inherit; text-decoration: none; }
 .source-gallery a.featured { grid-column: 1 / -1; }
 .source-gallery small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-source-note { margin: 0 0 10px; color: #74655b; font-size: 11px; line-height: 1.5; }
+.social-source-grid { display: grid; gap: 8px; }
+.social-source-grid > a { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #e0d4c8; border-radius: 13px; color: inherit; background: #fffdf8; text-decoration: none; transition: border-color .18s ease, transform .18s ease; }
+.social-source-grid > a:hover { border-color: #b79883; transform: translateY(-1px); }
+.social-source-mark { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: white; background: #5f5046; font-size: 12px; font-weight: 900; }
+.social-source-grid > a[data-platform="youtube"] .social-source-mark { background: #d52222; }
+.social-source-grid > a[data-platform="instagram"] .social-source-mark { background: linear-gradient(135deg,#7557c8,#d74472,#e79a3b); }
+.social-source-grid > a[data-platform="tiktok"] .social-source-mark { background: #151515; }
+.social-source-grid > a[data-platform="facebook"] .social-source-mark { background: #2767b2; }
+.social-source-grid > a[data-platform="x"] .social-source-mark { background: #111; }
+.social-source-grid > a[data-platform="flickr"] .social-source-mark { background: #d62976; }
+.social-source-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.social-source-copy strong, .social-source-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-source-copy strong { color: #3d2b24; font-size: 12px; }
+.social-source-copy small { color: #79695f; font-size: 10px; }
 
 .mobile-tabs { display: none !important; }
 .site-footer { max-width: 1180px; display: grid; grid-template-columns: 1fr 1.4fr auto; align-items: center; gap: 30px; margin: 10px auto 0; padding: 32px 24px 45px; border-top: 1px solid #d8cabc; color: #79695f; font-size: 11px; }
