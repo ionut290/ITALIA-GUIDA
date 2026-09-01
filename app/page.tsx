@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, BellRing, BookOpen, Check, ChevronLeft, ChevronRight, Compass,
   ExternalLink, Headphones, LocateFixed, Map, MapPin, Navigation, Pause,
-  Play, Search, Sparkles, Square, Video, Volume2, Footprints,
+  Play, Search, Sparkles, Square, Video, Volume2, Footprints, ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -847,10 +847,11 @@ export default function Home() {
             <SheetHeader><p className="eyebrow">{selectedNearby.source === "openstreetmap" ? "Punto di interesse sulla mappa" : "Guida rilevata vicino a te"}</p><SheetTitle>{selectedNearby.title}</SheetTitle><SheetDescription>{selectedNearby.source === "openstreetmap" ? `${selectedNearby.category || "Luogo turistico"} · Italia` : selectedNearby.distance < 1000 ? `${Math.round(selectedNearby.distance)} metri da te` : `${(selectedNearby.distance / 1000).toFixed(1)} km da te`}</SheetDescription></SheetHeader>
             <div className="sheet-scroll">
               {(selectedNearby.images?.[0]?.url || selectedNearby.thumbnail) ? (
-                <div className="guide-gallery"><img src={selectedNearby.images?.[0]?.url || selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>{selectedNearby.source === "izi" ? "Fonte: izi.TRAVEL" : selectedNearby.source === "openstreetmap" ? "Fonte: OpenStreetMap / Wikimedia" : "Fonte: Wikipedia / Wikimedia Commons"}</small></div></div>
+                <div className="guide-gallery"><img src={selectedNearby.images?.[0]?.url || selectedNearby.thumbnail} alt={`Fotografia di ${selectedNearby.title}`} referrerPolicy="no-referrer" /><span className="photo-open-hint main-photo-open-hint" data-open-photo><ZoomIn size={14} /> Apri foto</span><div className="image-kind">Fotografia reale</div><div className="image-caption"><span>{selectedNearby.title}</span><small>{selectedNearby.source === "izi" ? "Fonte: izi.TRAVEL" : selectedNearby.source === "openstreetmap" ? "Fonte: OpenStreetMap / Wikimedia" : "Fonte: Wikipedia / Wikimedia Commons"}</small></div></div>
               ) : (
                 <div className="nearby-image-empty"><MapPin /><span>Fotografia non disponibile per questo luogo</span></div>
               )}
+              <div data-poi-multimedia-host />
               {selectedNearby.audioUrl ? (
                 <div className="original-audio"><div className="media-heading"><Headphones /><div><strong>Audioguida originale</strong><span>Contenuto fornito da izi.TRAVEL</span></div></div><audio src={selectedNearby.audioUrl} controls preload="none" /></div>
               ) : (
@@ -858,7 +859,6 @@ export default function Home() {
               )}
               <article><h3>Scopri il luogo</h3><p>{selectedNearby.extract}</p></article>
               {nearbyAiPhoto && <div className="guide-gallery ai-nearby"><img src={nearbyAiPhoto.src} alt={nearbyAiPhoto.alt} /><div className="image-kind ai">Ricostruzione AI</div><div className="image-caption"><span>{nearbyAiPhoto.alt}</span><small>{nearbyAiPhoto.credit}</small></div></div>}
-              <div data-poi-multimedia-host />
               <section className="video-card" aria-label="Video del luogo">
                 <div className="media-heading"><Video /><div><strong>Video del luogo</strong><span>Wikimedia Commons o ricerca esterna</span></div></div>
                 {nearbyVideoLoading && <p>Ricerca di un video libero…</p>}
@@ -884,6 +884,7 @@ export default function Home() {
                   alt={selected.photos[photoIndex].alt}
                   referrerPolicy="no-referrer"
                 />
+                <span className="photo-open-hint main-photo-open-hint" data-open-photo><ZoomIn size={14} /> Apri foto</span>
                 <div className={`image-kind ${selected.photos[photoIndex].kind}`}>
                   {selected.photos[photoIndex].kind === "ai" ? "Ricostruzione AI" : "Fotografia reale"}
                 </div>
@@ -905,10 +906,10 @@ export default function Home() {
                   </>
                 )}
               </div>
+              <div data-poi-multimedia-host />
               <div className="audio-box"><Headphones /><div><strong>Voce narrativa naturale</strong><span>Voce italiana selezionata automaticamente · circa {Math.max(2, Math.ceil(selected.narration.split(/\s+/).length / 125))} minuti</span></div><Button size="icon-lg" onClick={() => speak(selected)} aria-label={speakingId === selected.id ? "Ferma audioguida" : "Avvia audioguida"}>{speakingId === selected.id ? <Square /> : <Play />}</Button></div>
               <article><h3>La storia</h3><p>{selected.story}</p></article>
               <article className="curiosity"><Sparkles /><div><h3>Lo sapevi?</h3><p>{selected.curiosity}</p></div></article>
-              <div data-poi-multimedia-host />
               {selected.video && (
                 <section className="video-card" aria-label="Video della tappa">
                   <div className="media-heading"><Video /><div><strong>Guarda Bologna</strong><span>Video ufficiale · avvio manuale</span></div></div>

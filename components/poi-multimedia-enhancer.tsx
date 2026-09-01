@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Images, LoaderCircle, Newspaper, Share2, Video } from "lucide-react";
+import { ExternalLink, Images, LoaderCircle, Newspaper, Share2, Video, X, ZoomIn } from "lucide-react";
 
 type ImageItem = { url: string; originalUrl?: string; title?: string; author?: string; license?: string; sourceUrl?: string };
 type VideoItem = { id: string; title: string; channel?: string };
@@ -14,6 +14,8 @@ type SocialItem = {
   url: string;
   handle?: string;
   kind?: "official" | "linked" | "search";
+  embedType?: "youtube" | "tiktok-video" | "tiktok-profile" | "instagram-post";
+  embedId?: string;
 };
 type PoiDetails = {
   title: string;
@@ -34,6 +36,7 @@ export function PoiMultimediaEnhancer() {
   const [active, setActive] = useState<ActivePoi | null>(null);
   const [details, setDetails] = useState<PoiDetails | null>(null);
   const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<{ src: string; alt: string } | null>(null);
 
   useEffect(() => {
     let frame = 0;
@@ -106,57 +109,147 @@ export function PoiMultimediaEnhancer() {
     { platform: "Instagram", title: "Cerca foto e Reel", url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(active.title)}`, kind: "search" },
   ] : [], [active]);
   const socialMedia = details?.socialMedia?.length ? details.socialMedia : socialFallback;
+  const embeddedSocials = useMemo(() => socialMedia.filter((item) => item.embedType && item.embedId).slice(0, 3), [socialMedia]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setPreview(null));
+    return () => cancelAnimationFrame(frame);
+  }, [active?.title]);
+
+  useEffect(() => {
+    const openPhoto = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const hintedPhoto = target?.closest<HTMLElement>("[data-open-photo]");
+      const hintedContainer = hintedPhoto?.closest<HTMLElement>(".guide-gallery, .source-gallery a");
+      const image = hintedContainer?.querySelector<HTMLImageElement>("img")
+        ?? target?.closest<HTMLImageElement>(".place-sheet .guide-gallery img, .place-sheet .source-gallery img");
+      if (!image) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPreview({ src: image.dataset.fullImage || image.currentSrc || image.src, alt: image.alt || "Fotografia del luogo" });
+    };
+    document.addEventListener("click", openPhoto, true);
+    return () => document.removeEventListener("click", openPhoto, true);
+  }, []);
+
+  useEffect(() => {
+    if (!preview) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setPreview(null); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [preview]);
+
+  useEffect(() => {
+    if (!embeddedSocials.length) return;
+    const needsTikTok = embeddedSocials.some((item) => item.embedType === "tiktok-profile");
+    const needsInstagram = embeddedSocials.some((item) => item.embedType === "instagram-post");
+    const timers: number[] = [];
+    if (needsTikTok) {
+      timers.push(window.setTimeout(() => {
+        document.querySelector("script[data-varga-tiktok-embed]")?.remove();
+        const script = document.createElement("script");
+        script.src = "https://www.tiktok.com/embed.js";
+        script.async = true;
+        script.dataset.vargaTiktokEmbed = "true";
+        document.body.appendChild(script);
+      }, 0));
+    }
+    if (needsInstagram) {
+      timers.push(window.setTimeout(() => {
+        const instagram = (window as Window & { instgrm?: { Embeds?: { process: () => void } } }).instgrm;
+        if (instagram?.Embeds?.process) { instagram.Embeds.process(); return; }
+        if (document.querySelector("script[data-varga-instagram-embed]")) return;
+        const script = document.createElement("script");
+        script.src = "https://www.instagram.com/embed.js";
+        script.async = true;
+        script.dataset.vargaInstagramEmbed = "true";
+        document.body.appendChild(script);
+      }, 0));
+    }
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [embeddedSocials]);
+
   if (!active) return null;
 
-  return createPortal(
-    <section className="multisource-panel" aria-label="Approfondimenti multimediali">
-      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-        <Newspaper size={20} aria-hidden="true" />
-        <div><strong style={{ display: "block", fontSize: 17 }}>Racconto da più fonti</strong><span style={{ opacity: .72, fontSize: 13 }}>Wikipedia, Wikidata, Wikimedia Commons, OpenStreetMap e sito ufficiale quando disponibile</span></div>
-      </div>
-
-      {loading && <div style={{ display: "flex", gap: 10, alignItems: "center", opacity: .75 }}><LoaderCircle className="spin" size={18} /> Cerco contenuti affidabili…</div>}
-
-      {details?.description && <p className="source-description">{details.description}</p>}
-      {details?.summary && <details className="source-story" open><summary>Storia e contesto</summary><p>{details.summary}</p></details>}
-      {details?.facts && details.facts.length > 0 && <div><strong className="subsection-title">Dati incrociati</strong><div className="source-facts">{details.facts.map((fact) => <div key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong>{fact.value}</strong></div>)}</div></div>}
-
-      {details?.images && details.images.length > 0 && <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}><Images size={18} /><strong>Fotografie documentarie</strong><small style={{ opacity: .65 }}> · Wikimedia Commons</small></div>
-        <div className="source-gallery">
-          {details.images.slice(0, 8).map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" className={index === 0 ? "featured" : ""}>
-            <img src={image.url} alt={image.title || `Foto di ${active.title}`} loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", aspectRatio: index === 0 ? "16 / 10" : "4 / 3", objectFit: "cover", borderRadius: 12, display: "block" }} />
-            <small style={{ display: "block", marginTop: 4, opacity: .65, lineHeight: 1.25 }}>{image.author || "Wikimedia Commons"}{image.license ? ` · ${image.license}` : ""}</small>
-          </a>)}
+  return <>
+    {createPortal(
+      <section className="multisource-panel" aria-label="Foto, video e approfondimenti">
+        <div className="multisource-heading">
+          <Images size={20} aria-hidden="true" />
+          <div><strong>Foto e video del luogo</strong><span>Contenuti incorporati in Varga Tour e fonti sempre riconoscibili</span></div>
         </div>
-      </div>}
 
-      <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 9 }}><Video size={18} /><strong>Video YouTube</strong></div>
-        {details?.videos && details.videos.length > 0 ? <div style={{ display: "grid", gap: 12 }}>
-          {details.videos.slice(0, 3).map((video) => <div key={video.id}><div style={{ position: "relative", paddingTop: "56.25%", overflow: "hidden", borderRadius: 12, background: "#000" }}><iframe src={`https://www.youtube-nocookie.com/embed/${video.id}`} title={video.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }} /></div><small style={{ display: "block", marginTop: 5, opacity: .7 }}>{video.title}{video.channel ? ` · ${video.channel}` : ""}</small></div>)}
-        </div> : !loading && <a href={socialFallback[0]?.url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Cerca video su YouTube <ExternalLink size={15} /></a>}
-      </div>
+        {loading && <div className="multisource-loading"><LoaderCircle className="spin" size={18} /> Carico foto e video…</div>}
 
-      {!loading && socialMedia.length > 0 && <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 7 }}><Share2 size={18} /><strong>Social e contenuti originali</strong></div>
-        <p className="social-source-note">Foto e video restano sulla piattaforma originale, con autore e collegamento alla fonte. Gli account ufficiali vengono mostrati per primi quando sono disponibili.</p>
-        <div className="social-source-grid">
-          {socialMedia.map((item) => <a key={`${item.platform}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" data-platform={item.platform.toLowerCase()}>
-            <span className="social-source-mark" aria-hidden="true">{item.platform.slice(0, 1)}</span>
-            <span className="social-source-copy"><strong>{item.title}</strong><small>{item.platform}{item.handle ? ` · ${item.handle}` : item.kind === "official" ? " · account ufficiale" : item.kind === "linked" ? " · fonte collegata" : " · ricerca esterna"}</small></span>
-            <ExternalLink size={15} aria-hidden="true" />
-          </a>)}
+        {details?.images && details.images.length > 0 && <div>
+          <div className="media-section-title"><Images size={18} /><strong>Galleria fotografica</strong><small> · tocca una foto per ingrandirla</small></div>
+          <div className="source-gallery">
+            {details.images.slice(0, 8).map((image, index) => <a key={`${image.url}-${index}`} href={image.sourceUrl || image.originalUrl || image.url} target="_blank" rel="noreferrer" className={index === 0 ? "featured" : ""}>
+              <span className="photo-open-hint" data-open-photo><ZoomIn size={14} /> Apri</span>
+              <img data-full-image={image.originalUrl || image.url} src={image.url} alt={image.title || `Foto di ${active.title}`} loading="lazy" referrerPolicy="no-referrer" />
+              <small>{image.author || "Wikimedia Commons"}{image.license ? ` · ${image.license}` : ""}</small>
+            </a>)}
+          </div>
+        </div>}
+
+        <div>
+          <div className="media-section-title"><Video size={18} /><strong>Video incorporati</strong></div>
+          {details?.videos && details.videos.length > 0 ? <div className="embedded-video-grid">
+            {details.videos.slice(0, 3).map((video) => <div key={video.id} className="embedded-video-card"><div className="embedded-video-frame"><iframe src={`https://www.youtube-nocookie.com/embed/${video.id}?playsinline=1`} title={video.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div><small>{video.title}{video.channel ? ` · ${video.channel}` : ""}</small></div>)}
+          </div> : !loading && <a href={socialFallback[0]?.url} target="_blank" rel="noreferrer" className="external-media-search">Cerca video su YouTube <ExternalLink size={15} /></a>}
         </div>
-      </div>}
 
-      {details?.sources && details.sources.length > 0 && <div>
-        <strong style={{ display: "block", marginBottom: 7 }}>Fonti consultate</strong>
-        <div style={{ display: "grid", gap: 7 }}>{details.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", color: "inherit", textDecoration: "none", padding: "10px 12px", borderRadius: 11, background: "rgba(120,120,120,.08)" }}><span><strong style={{ display: "block" }}>{source.title}</strong>{source.kind && <small style={{ opacity: .62 }}>{source.kind}</small>}</span><ExternalLink size={15} /></a>)}</div>
-      </div>}
+        {embeddedSocials.length > 0 && <div>
+          <div className="media-section-title"><Share2 size={18} /><strong>Contenuti dai social</strong><small> · incorporati dalla fonte originale</small></div>
+          <div className="social-embed-grid">
+            {embeddedSocials.map((item) => <div className="social-embed-card" key={`${item.embedType}-${item.embedId}`}>
+              {item.embedType === "youtube" && <iframe className="social-video-landscape" src={`https://www.youtube-nocookie.com/embed/${item.embedId}?playsinline=1`} title={item.title} loading="lazy" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />}
+              {item.embedType === "tiktok-video" && <iframe className="social-video-portrait" src={`https://www.tiktok.com/player/v1/${item.embedId}`} title={item.title} loading="lazy" allow="fullscreen; autoplay" allowFullScreen />}
+              {item.embedType === "tiktok-profile" && <blockquote className="tiktok-embed" cite={item.url} data-unique-id={item.embedId} data-embed-type="creator"><section><a href={item.url} target="_blank" rel="noreferrer">{item.handle || `@${item.embedId}`}</a></section></blockquote>}
+              {item.embedType === "instagram-post" && <blockquote className="instagram-media" data-instgrm-permalink={item.url} data-instgrm-version="14"><a href={item.url} target="_blank" rel="noreferrer">Guarda il contenuto su Instagram</a></blockquote>}
+              <a className="social-embed-source" href={item.url} target="_blank" rel="noreferrer">{item.platform} · fonte originale <ExternalLink size={13} /></a>
+            </div>)}
+          </div>
+        </div>}
 
-      {details?.officialWebsite && <a href={details.officialWebsite} target="_blank" rel="noreferrer" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>Sito ufficiale <ExternalLink size={15} /></a>}
-    </section>,
-    active.host,
-  );
+        <div className="multisource-heading story-heading">
+          <Newspaper size={20} aria-hidden="true" />
+          <div><strong>Storia e informazioni</strong><span>Wikipedia, Wikidata, OpenStreetMap e fonti ufficiali</span></div>
+        </div>
+        {details?.description && <p className="source-description">{details.description}</p>}
+        {details?.summary && <details className="source-story" open><summary>Storia e contesto</summary><p>{details.summary}</p></details>}
+        {details?.facts && details.facts.length > 0 && <div><strong className="subsection-title">Dati incrociati</strong><div className="source-facts">{details.facts.map((fact) => <div key={`${fact.label}-${fact.value}`}><small>{fact.label}</small><strong>{fact.value}</strong></div>)}</div></div>}
+
+        {!loading && socialMedia.length > 0 && <div>
+          <div className="media-section-title"><Share2 size={18} /><strong>Altri contenuti social</strong></div>
+          <p className="social-source-note">Gli account ufficiali vengono mostrati per primi. Le ricerche esterne servono quando la piattaforma non consente l’incorporamento automatico.</p>
+          <div className="social-source-grid">
+            {socialMedia.map((item) => <a key={`${item.platform}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" data-platform={item.platform.toLowerCase()}>
+              <span className="social-source-mark" aria-hidden="true">{item.platform.slice(0, 1)}</span>
+              <span className="social-source-copy"><strong>{item.title}</strong><small>{item.platform}{item.handle ? ` · ${item.handle}` : item.kind === "official" ? " · account ufficiale" : item.kind === "linked" ? " · fonte collegata" : " · ricerca esterna"}</small></span>
+              <ExternalLink size={15} aria-hidden="true" />
+            </a>)}
+          </div>
+        </div>}
+
+        {details?.sources && details.sources.length > 0 && <div>
+          <strong className="subsection-title">Fonti consultate</strong>
+          <div className="consulted-source-grid">{details.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer"><span><strong>{source.title}</strong>{source.kind && <small>{source.kind}</small>}</span><ExternalLink size={15} /></a>)}</div>
+        </div>}
+
+        {details?.officialWebsite && <a href={details.officialWebsite} target="_blank" rel="noreferrer" className="external-media-search">Sito ufficiale <ExternalLink size={15} /></a>}
+      </section>,
+      active.host,
+    )}
+    {preview && createPortal(
+      <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label="Fotografia ingrandita" onClick={() => setPreview(null)}>
+        <button type="button" className="photo-lightbox-close" onClick={() => setPreview(null)}><X size={20} /> Chiudi</button>
+        <div className="photo-lightbox-content" onClick={(event) => event.stopPropagation()}>
+          <img src={preview.src} alt={preview.alt} referrerPolicy="no-referrer" />
+          <p>{preview.alt}</p>
+        </div>
+      </div>,
+      document.body,
+    )}
+  </>;
 }

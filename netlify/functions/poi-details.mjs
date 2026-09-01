@@ -289,14 +289,14 @@ function domainLabel(link) {
 function socialProfile(platform, rawValue, buildUrl) {
   const value = String(rawValue || "").trim().replace(/^@/, "");
   if (!value) return null;
-  return { platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(value), handle: platform === "YouTube" ? "" : `@${value}`, kind: "official" };
+  return enrichSocialEmbed({ platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(value), handle: platform === "YouTube" ? "" : `@${value}`, kind: "official" });
 }
 function socialFromTag(platform, rawValue) {
   const value = String(rawValue || "").trim();
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) {
     const parsed = socialFromUrl(value, "official");
-    return parsed || { platform, title: `Profilo ufficiale ${platform}`, url: value, kind: "official" };
+    return parsed || enrichSocialEmbed({ platform, title: `Profilo ufficiale ${platform}`, url: value, kind: "official" });
   }
   const clean = value.replace(/^@/, "");
   const builders = {
@@ -308,7 +308,7 @@ function socialFromTag(platform, rawValue) {
     Flickr: (item) => `https://www.flickr.com/people/${encodeURIComponent(item)}`,
   };
   const buildUrl = builders[platform];
-  return buildUrl ? { platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(clean), handle: platform === "YouTube" ? "" : `@${clean}`, kind: "official" } : null;
+  return buildUrl ? enrichSocialEmbed({ platform, title: `Profilo ufficiale ${platform}`, url: buildUrl(clean), handle: platform === "YouTube" ? "" : `@${clean}`, kind: "official" }) : null;
 }
 function socialFromUrl(link, kind = "linked") {
   try {
@@ -323,8 +323,29 @@ function socialFromUrl(link, kind = "linked") {
     else if (host.endsWith("flickr.com")) platform = "Flickr";
     if (!platform) return null;
     const isPost = /\/(watch|shorts|reel|reels|p|video|videos)\b/i.test(url.pathname) || host === "youtu.be";
-    return { platform, title: isPost ? `Contenuto su ${platform}` : `Profilo su ${platform}`, url: url.href, kind };
+    return enrichSocialEmbed({ platform, title: isPost ? `Contenuto su ${platform}` : `Profilo su ${platform}`, url: url.href, kind });
   } catch { return null; }
+}
+function enrichSocialEmbed(item) {
+  try {
+    const url = new URL(item.url);
+    if (item.platform === "YouTube") {
+      const id = url.hostname === "youtu.be"
+        ? url.pathname.split("/").filter(Boolean)[0]
+        : url.searchParams.get("v") || url.pathname.match(/\/(?:shorts|embed)\/([^/?#]+)/)?.[1];
+      return id ? { ...item, embedType: "youtube", embedId: id } : item;
+    }
+    if (item.platform === "TikTok") {
+      const videoId = url.pathname.match(/\/video\/(\d+)/)?.[1];
+      if (videoId) return { ...item, embedType: "tiktok-video", embedId: videoId };
+      const handle = url.pathname.match(/^\/@([^/?#]+)/)?.[1];
+      if (handle) return { ...item, embedType: "tiktok-profile", embedId: handle };
+    }
+    if (item.platform === "Instagram" && /^\/(?:p|reel|reels|tv)\//.test(url.pathname)) {
+      return { ...item, embedType: "instagram-post", embedId: url.href };
+    }
+  } catch {}
+  return item;
 }
 function socialSearchItems(title) {
   const touristQuery = `${title} Italia guida turistica`;
