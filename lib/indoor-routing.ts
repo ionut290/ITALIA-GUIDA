@@ -119,7 +119,7 @@ export function routeLengthMeters(route: IndoorCoordinate[]) {
   return total;
 }
 
-export function advanceAlongRoute(route: IndoorCoordinate[], current: IndoorCoordinate, stepMeters = 4) {
+export function advanceAlongRoute(route: IndoorCoordinate[], current: IndoorCoordinate, stepMeters = 0.7) {
   if (route.length < 2) return { position: current, reached: true };
   let nearestIndex = 0;
   let nearestDistance = Number.POSITIVE_INFINITY;
@@ -127,7 +127,9 @@ export function advanceAlongRoute(route: IndoorCoordinate[], current: IndoorCoor
     const d = indoorDistanceMeters(current, route[i]);
     if (d < nearestDistance) { nearestDistance = d; nearestIndex = i; }
   }
-  let remaining = stepMeters;
+  // La pagina storicamente passa 4 m ogni 500 ms. Limitiamo lo spostamento a
+  // circa 0,7 m per tick (~1,4 m/s), una velocità di camminata realistica.
+  let remaining = Math.min(Math.max(stepMeters, 0.05), 0.7);
   let from = current;
   for (let i = Math.max(1, nearestIndex + 1); i < route.length; i++) {
     const to = route[i];
