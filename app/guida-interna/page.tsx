@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Compass, LocateFixed, MapPin, Navigation, Plane, Search, TrainFront, Accessibility, Building2, ShoppingCart, Play, Pause, RotateCcw, Crosshair } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, Compass, LocateFixed, MapPin, Navigation, Plane, Search, TrainFront, Accessibility, Building2, ShoppingCart, RotateCcw, Crosshair, Flag } from "lucide-react";
 import { IndoorMap } from "@/components/indoor-map";
-import { advanceAlongRoute, routeLengthMeters, shortestIndoorPath, type IndoorRouteSegment } from "@/lib/indoor-routing";
+import { routeLengthMeters, shortestIndoorPath, type IndoorRouteSegment } from "@/lib/indoor-routing";
 
 type Hub = { id: string; name: string; subtitle?: string; type: "airport" | "station" | "mall" | "supermarket" | "hospital" | "university" | "building"; lat: number; lng: number };
 type IndoorPoint = { id: string; name: string; category: string; level?: string; wheelchair?: string; lat: number; lng: number };
 type Position = { lat: number; lng: number; accuracy?: number; altitude?: number | null; altitudeAccuracy?: number | null };
 type FloorSource = "unknown" | "confirmed" | "estimated";
+type Checkpoint = { id: string; lat: number; lng: number; name: string; instruction: string; level?: string; distanceFromPrevious: number; final?: boolean };
 
 function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const r = 6371000;
@@ -43,6 +44,65 @@ function numericLevel(value?: string) {
   return Number.isFinite(number) ? number : null;
 }
 
+function buildCheckpoints(route: Array<{ lat: number; lng: number }>, points: IndoorPoint[], destination: IndoorPoint): Checkpoint[] {
+  if (route.length < 2) return [];
+  const checkpoints: Checkpoint[] = [];
+  let anchor = route[0];
+  let accumulated = 0;
+  let lastAddedIndex = 0;
+
+  for (let i = 1; i < route.length; i += 1) {
+    accumulated += distanceMeters(route[i - 1], route[i]);
+    const isLast = i === route.length - 1;
+    if (!isLast && accumulated < 28) continue;
+
+    const coordinate = route[i];
+    const nearest = points
+      .map((point) => ({ point, distance: distanceMeters(coordinate, point) }))
+      .filter((item) => item.distance <= 18 && item.point.id !== destination.id)
+      .sort((a, b) => a.distance - b.distance)[0]?.point;
+
+    const final = isLast;
+    const name = final ? destination.name : nearest?.name || `Checkpoint ${checkpoints.length + 1}`;
+    const level = final ? destination.level : nearest?.level;
+    const legDistance = Math.max(1, Math.round(distanceMeters(anchor, coordinate)));
+    const categoryHint = nearest && ["Ascensore", "Scale", "Scala mobile"].includes(nearest.category)
+      ? `Raggiungi ${nearest.name}${nearest.level ? ` al piano ${nearest.level}` : ""}.`
+      : final
+        ? `Vai fino a ${destination.name}.`
+        : `Vai fino a ${name}.`;
+
+    checkpoints.push({
+      id: final ? `destination-${destination.id}` : `checkpoint-${i}-${name}`,
+      lat: coordinate.lat,
+      lng: coordinate.lng,
+      name,
+      instruction: categoryHint,
+      level,
+      distanceFromPrevious: legDistance,
+      final,
+    });
+    anchor = coordinate;
+    accumulated = 0;
+    lastAddedIndex = i;
+  }
+
+  if (lastAddedIndex !== route.length - 1) {
+    checkpoints.push({
+      id: `destination-${destination.id}`,
+      lat: destination.lat,
+      lng: destination.lng,
+      name: destination.name,
+      instruction: `Vai fino a ${destination.name}.`,
+      level: destination.level,
+      distanceFromPrevious: Math.max(1, Math.round(distanceMeters(anchor, destination))),
+      final: true,
+    });
+  }
+
+  return checkpoints;
+}
+
 export default function IndoorGuidePage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Hub[]>([]);
@@ -63,9 +123,13 @@ export default function IndoorGuidePage() {
   const [simulationMode, setSimulationMode] = useState(false);
   const [pickingSimulationStart, setPickingSimulationStart] = useState(false);
   const [simulationStart, setSimulationStart] = useState<Position | null>(null);
-  const [simulationRunning, setSimulationRunning] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [checkpointIndex, setCheckpointIndex] = useState(0);
+  const [checkpointRoute, setCheckpointRoute] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [checkpointStart, setCheckpointStart] = useState<Position | null>(null);
+  const [checkpointDestinationId, setCheckpointDestinationId] = useState<string | null>(null);
+  const [navigationComplete, setNavigationComplete] = useState(false);
   const watchRef = useRef<number | null>(null);
-  const simulationRef = useRef<number | null>(null);
 
   const stopGpsWatch = useCallback(() => {
     if (watchRef.current !== null) {
@@ -74,17 +138,17 @@ export default function IndoorGuidePage() {
     }
   }, []);
 
-  const stopSimulation = useCallback(() => {
-    if (simulationRef.current !== null) {
-      window.clearInterval(simulationRef.current);
-      simulationRef.current = null;
-    }
-    setSimulationRunning(false);
-  }, []);
-
   useEffect(() => () => {
     if (watchRef.current !== null) navigator.geolocation?.clearWatch(watchRef.current);
-    if (simulationRef.current !== null) window.clearInterval(simulationRef.current);
+  }, []);
+
+  const resetCheckpointNavigation = useCallback(() => {
+    setCheckpoints([]);
+    setCheckpointIndex(0);
+    setCheckpointRoute([]);
+    setCheckpointStart(null);
+    setCheckpointDestinationId(null);
+    setNavigationComplete(false);
   }, []);
 
   const levels = useMemo(() => ["Tutti", ...Array.from(new Set(points.map((p) => p.level).filter(Boolean) as string[])).sort((a, b) => {
@@ -138,7 +202,7 @@ export default function IndoorGuidePage() {
   }
 
   async function openHub(item: Hub) {
-    stopGpsWatch(); stopSimulation();
+    stopGpsWatch(); resetCheckpointNavigation();
     setHub(item); setDestination(null); setPoints([]); setRouteSegments([]); setLoading(true); setLevel("Tutti"); setCurrentFloor(null); setFloorSource("unknown"); setFloorReference(null); setPosition(null); setSimulationStart(null); setPickingSimulationStart(false);
     setMessage("Carico la mappa e i percorsi interni…");
     try {
@@ -156,11 +220,11 @@ export default function IndoorGuidePage() {
     setCurrentFloor(value); setLevel(value); setFloorSource("confirmed");
     const n = numericLevel(value);
     if (!simulationMode && n !== null && position?.altitude != null) setFloorReference({ level: n, altitude: position.altitude });
-    setMessage(simulationMode ? `Piano ${value} impostato per la simulazione.` : `Piano ${value} confermato. Userò questo dato per la navigazione${position?.altitude != null ? " e per stimare eventuali cambi di piano" : ""}.`);
+    setMessage(simulationMode ? `Piano ${value} impostato per la simulazione.` : `Piano ${value} confermato.`);
   }
 
   function toggleSimulation() {
-    stopGpsWatch(); stopSimulation();
+    stopGpsWatch(); resetCheckpointNavigation();
     const next = !simulationMode;
     setSimulationMode(next);
     setPickingSimulationStart(false);
@@ -170,12 +234,12 @@ export default function IndoorGuidePage() {
     setCurrentFloor(null);
     setFloorSource("unknown");
     setFloorReference(null);
-    setMessage(next ? "Modalità simulazione attiva. Premi “Scegli punto di partenza” e tocca la mappa." : "Simulazione disattivata. Puoi usare la posizione reale.");
+    setMessage(next ? "Modalità simulazione attiva. Scegli il punto di partenza e poi la destinazione." : "Simulazione disattivata. Puoi usare la posizione reale.");
   }
 
   function chooseSimulationStart() {
     if (!simulationMode) return;
-    stopSimulation();
+    resetCheckpointNavigation();
     setDestination(null);
     setPickingSimulationStart(true);
     setMessage("Tocca sulla mappa il punto esatto da cui vuoi partire.");
@@ -186,27 +250,27 @@ export default function IndoorGuidePage() {
     setPosition(start);
     setSimulationStart(start);
     setPickingSimulationStart(false);
-    setMessage("Punto di partenza impostato. Adesso scegli la destinazione sulla mappa o dall’elenco.");
+    setMessage("Punto di partenza impostato. Adesso scegli la destinazione.");
   }, []);
 
   const startGuide = useCallback((point: IndoorPoint) => {
+    resetCheckpointNavigation();
     setDestination(point);
     if (point.level) setLevel(point.level);
     if (simulationMode) {
-      stopSimulation();
       if (!simulationStart) {
         setMessage("Prima scegli il punto di partenza della simulazione.");
         return;
       }
       setPosition(simulationStart);
-      setMessage(`Destinazione ${point.name} selezionata. Premi Avvia simulazione.`);
+      setMessage(`Destinazione ${point.name} selezionata. Preparo i checkpoint.`);
       return;
     }
-    setMessage(`Navigazione interna verso ${point.name}. Il percorso si aggiorna mentre ti muovi.`);
+    setMessage(`Navigazione a checkpoint verso ${point.name}. Conferma ogni tappa con “Sono arrivato”.`);
     if (!navigator.geolocation) return;
     stopGpsWatch();
-    watchRef.current = navigator.geolocation.watchPosition((p) => setPosition(toPosition(p)), () => setMessage("Segnale GPS debole dentro la struttura."), { enableHighAccuracy: true, maximumAge: 1500, timeout: 12000 });
-  }, [simulationMode, simulationStart, stopGpsWatch, stopSimulation]);
+    watchRef.current = navigator.geolocation.watchPosition((p) => setPosition(toPosition(p)), () => setMessage("Segnale GPS debole: puoi comunque avanzare confermando i checkpoint."), { enableHighAccuracy: true, maximumAge: 1500, timeout: 12000 });
+  }, [resetCheckpointNavigation, simulationMode, simulationStart, stopGpsWatch]);
 
   const categories = useMemo(() => ["Tutti", ...Array.from(new Set(points.map((p) => p.category))).sort()], [points]);
   const visible = useMemo(() => points.filter((p) => (category === "Tutti" || p.category === category) && (level === "Tutti" || p.level === level)), [points, category, level]);
@@ -217,86 +281,121 @@ export default function IndoorGuidePage() {
     const destinationFloor = destination.level || null;
     if (!currentFloor || !destinationFloor || currentFloor === destinationFloor) {
       const path = shortestIndoorPath(routeSegments, position, destination, currentFloor || destinationFloor);
-      if (path) return { route: path, text: `Percorso interno${destinationFloor ? ` sul piano ${destinationFloor}` : ""}: seguo corridoi e passaggi pedonali mappati.`, routed: true };
-      return { route: [position, destination], text: simulationMode ? "Percorso simulato indicativo: in questa zona non risultano corridoi collegati nei dati pubblici." : "Percorso indicativo: rete pedonale interna non abbastanza dettagliata in questa zona.", routed: false };
+      if (path) return { route: path, text: "Percorso interno sui corridoi mappati.", routed: true };
+      return { route: [position, destination], text: "Percorso indicativo: i corridoi interni non sono completamente mappati.", routed: false };
     }
     const currentCandidates = verticalConnectors.filter((p) => p.level === currentFloor);
     const destinationCandidates = verticalConnectors.filter((p) => p.level === destinationFloor);
-    if (!currentCandidates.length || !destinationCandidates.length) {
-      return { route: [position, destination], text: `Devi passare dal piano ${currentFloor} al piano ${destinationFloor}; collegamento verticale non completamente mappato.`, routed: false };
-    }
+    if (!currentCandidates.length || !destinationCandidates.length) return { route: [position, destination], text: `Passa dal piano ${currentFloor} al piano ${destinationFloor}.`, routed: false };
     const startConnector = currentCandidates.reduce((best, item) => distanceMeters(position, item) < distanceMeters(position, best) ? item : best);
     const endConnector = destinationCandidates.reduce((best, item) => distanceMeters(destination, item) < distanceMeters(destination, best) ? item : best);
     const firstLeg = shortestIndoorPath(routeSegments, position, startConnector, currentFloor) || [position, startConnector];
     const lastLeg = shortestIndoorPath(routeSegments, endConnector, destination, destinationFloor) || [endConnector, destination];
-    const route = [...firstLeg, endConnector, ...lastLeg.slice(1)];
-    const routed = firstLeg.length > 2 || lastLeg.length > 2;
-    return {
-      route,
-      text: `Segui il percorso fino a ${startConnector.name}, passa al piano ${destinationFloor} e continua lungo i corridoi verso ${destination.name}.`,
-      routed,
-    };
-  }, [position, destination, currentFloor, verticalConnectors, simulationMode, routeSegments]);
+    return { route: [...firstLeg, endConnector, ...lastLeg.slice(1)], text: `Raggiungi ${startConnector.name}, passa al piano ${destinationFloor} e continua verso ${destination.name}.`, routed: firstLeg.length > 2 || lastLeg.length > 2 };
+  }, [position, destination, currentFloor, verticalConnectors, routeSegments]);
 
-  function runSimulation() {
-    if (!simulationMode || !simulationStart || !destination) {
-      setMessage(!simulationStart ? "Scegli prima il punto di partenza." : "Scegli prima la destinazione.");
+  useEffect(() => {
+    if (!destination || !position || routeInfo.route.length < 2 || checkpointDestinationId === destination.id) return;
+    const generated = buildCheckpoints(routeInfo.route, points, destination);
+    if (!generated.length) return;
+    setCheckpoints(generated);
+    setCheckpointIndex(0);
+    setCheckpointRoute(routeInfo.route);
+    setCheckpointStart(position);
+    setCheckpointDestinationId(destination.id);
+    setNavigationComplete(false);
+    setMessage(`Percorso pronto: ${generated.length} checkpoint. Vai al primo e premi “Sono arrivato”.`);
+  }, [destination, position, routeInfo.route, points, checkpointDestinationId]);
+
+  const activeCheckpoint = checkpoints[checkpointIndex] || null;
+  const remainingRoute = useMemo(() => {
+    if (!checkpointRoute.length || !activeCheckpoint) return routeInfo.route;
+    const start = checkpointIndex === 0 ? checkpointStart : checkpoints[checkpointIndex - 1];
+    if (!start) return checkpointRoute;
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
+    checkpointRoute.forEach((point, index) => {
+      const d = distanceMeters(start, point);
+      if (d < nearestDistance) { nearestDistance = d; nearestIndex = index; }
+    });
+    return checkpointRoute.slice(nearestIndex);
+  }, [checkpointRoute, activeCheckpoint, checkpointIndex, checkpointStart, checkpoints, routeInfo.route]);
+
+  function confirmCheckpoint() {
+    if (!activeCheckpoint) return;
+    if (simulationMode) setPosition({ lat: activeCheckpoint.lat, lng: activeCheckpoint.lng, accuracy: 1 });
+    if (activeCheckpoint.final || checkpointIndex >= checkpoints.length - 1) {
+      setNavigationComplete(true);
+      setMessage(`Destinazione raggiunta: ${destination?.name || activeCheckpoint.name}.`);
       return;
     }
-    stopSimulation();
-    const simulationRoute = routeInfo.route.length >= 2 ? routeInfo.route : [simulationStart, destination];
-    setPosition(simulationStart);
-    setSimulationRunning(true);
-    setMessage(`Simulazione in corso verso ${destination.name}${routeInfo.routed ? " lungo il percorso interno" : ""}.`);
-    simulationRef.current = window.setInterval(() => {
-      setPosition((previous) => {
-        const from = previous ?? simulationStart;
-        const advanced = advanceAlongRoute(simulationRoute, from, 4);
-        if (advanced.reached) {
-          if (simulationRef.current !== null) window.clearInterval(simulationRef.current);
-          simulationRef.current = null;
-          setSimulationRunning(false);
-          setMessage(`Destinazione raggiunta: ${destination.name}.`);
-          return { lat: destination.lat, lng: destination.lng, accuracy: 1 };
-        }
-        return { ...advanced.position, accuracy: 1 };
-      });
-    }, 500);
+    const nextIndex = checkpointIndex + 1;
+    setCheckpointIndex(nextIndex);
+    const next = checkpoints[nextIndex];
+    if (next.level) { setCurrentFloor(next.level); setLevel(next.level); }
+    setMessage(`Checkpoint confermato. Prossima tappa: ${next.name}.`);
+  }
+
+  function previousCheckpoint() {
+    if (!checkpoints.length || checkpointIndex <= 0) return;
+    const previousIndex = checkpointIndex - 1;
+    setNavigationComplete(false);
+    setCheckpointIndex(previousIndex);
+    const previousPosition = previousIndex === 0 ? checkpointStart : checkpoints[previousIndex - 1];
+    if (simulationMode && previousPosition) setPosition({ lat: previousPosition.lat, lng: previousPosition.lng, accuracy: 1 });
+    setMessage(`Tornato al checkpoint ${previousIndex + 1}.`);
   }
 
   function resetSimulation() {
-    stopSimulation();
+    resetCheckpointNavigation();
+    setDestination(null);
     if (simulationStart) setPosition(simulationStart);
-    setMessage(simulationStart ? "Simulazione riportata al punto di partenza." : "Scegli un punto di partenza sulla mappa.");
+    setMessage(simulationStart ? "Simulazione riportata al punto di partenza. Scegli di nuovo la destinazione." : "Scegli un punto di partenza sulla mappa.");
   }
 
-  const navDistance = routeInfo.route.length >= 2 ? routeLengthMeters(routeInfo.route) : position && destination ? distanceMeters(position, destination) : null;
+  const navDistance = activeCheckpoint && position ? distanceMeters(position, activeCheckpoint) : checkpointRoute.length >= 2 ? routeLengthMeters(checkpointRoute) : null;
   const icon = (item: Hub) => item.type === "airport" ? <Plane /> : item.type === "station" ? <TrainFront /> : item.type === "supermarket" ? <ShoppingCart /> : <Building2 />;
   const floorLabel = currentFloor ? `Piano ${currentFloor} · ${simulationMode ? "simulazione" : floorSource === "confirmed" ? "confermato" : "stimato"}` : simulationMode ? "Piano simulato non impostato" : "Piano non determinato";
 
   return <main className="indoor-page">
-    <header className="indoor-topbar"><Link href="/" className="indoor-back"><ArrowLeft size={18} /> Varga Tour</Link><div><strong>Guida interna</strong><small>Mappe delle strutture</small></div></header>
-    <section className="indoor-hero"><div><p className="eyebrow"><Navigation size={16} /> Navigazione interna</p><h1>Una mappa per arrivare proprio lì.</h1><p>Aeroporti, stazioni, centri commerciali, supermercati, ospedali, università e altre grandi strutture mappate.</p></div><button className="indoor-locate" onClick={locate} disabled={loading || simulationMode}><LocateFixed /> Usa la mia posizione</button></section>
+    <header className="indoor-topbar"><Link href="/" className="indoor-back"><ArrowLeft size={18} /> Varga Tour</Link><div><strong>Guida interna</strong><small>Navigazione a checkpoint</small></div></header>
+    <section className="indoor-hero"><div><p className="eyebrow"><Navigation size={16} /> Navigazione interna</p><h1>Un checkpoint alla volta.</h1><p>Varga Tour ti indica una tappa semplice. Quando arrivi, confermi e ricevi immediatamente la prossima indicazione.</p></div><button className="indoor-locate" onClick={locate} disabled={loading || simulationMode}><LocateFixed /> Usa la mia posizione</button></section>
     <section className="indoor-search-panel"><div className="indoor-search"><Search size={19} /><input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void searchHub()} placeholder="Cerca aeroporto, stazione, centro commerciale, supermercato…" /><button onClick={() => void searchHub()} disabled={loading}>Cerca</button></div><p className="indoor-status">{loading ? "Caricamento…" : message}</p></section>
     {!hub && (results.length > 0 || nearby.length > 0) && <section className="indoor-hub-grid">{(results.length ? results : nearby).map((item) => <button key={item.id} className="indoor-hub-card" onClick={() => void openHub(item)}><span className="indoor-hub-icon">{icon(item)}</span><span><small>{typeName(item.type)}</small><strong>{item.name}</strong>{item.subtitle && <em>{item.subtitle}</em>}</span><Navigation size={19} /></button>)}</section>}
     {hub && <section className="indoor-workspace">
-      <div className="indoor-workspace-head"><div><small>{typeName(hub.type)}</small><h2>{hub.name}</h2><p>{detailed ? "Dettagli interni, corridoi e livelli disponibili sulla mappa." : "Mostro tutti i punti pubblici disponibili."}</p></div><button onClick={() => { stopGpsWatch(); stopSimulation(); setHub(null); setDestination(null); setPoints([]); setRouteSegments([]); setPosition(null); setSimulationStart(null); }}>Cambia struttura</button></div>
+      <div className="indoor-workspace-head"><div><small>{typeName(hub.type)}</small><h2>{hub.name}</h2><p>{detailed ? "Dettagli interni, corridoi e livelli disponibili sulla mappa." : "Mostro tutti i punti pubblici disponibili."}</p></div><button onClick={() => { stopGpsWatch(); resetCheckpointNavigation(); setHub(null); setDestination(null); setPoints([]); setRouteSegments([]); setPosition(null); setSimulationStart(null); }}>Cambia struttura</button></div>
 
       <div className="indoor-filter-row">
         <button className={simulationMode ? "active" : ""} onClick={toggleSimulation}><Compass size={16} /> {simulationMode ? "Simulazione attiva" : "Modalità simulazione"}</button>
         {simulationMode && <button className={pickingSimulationStart ? "active" : ""} onClick={chooseSimulationStart}><Crosshair size={16} /> Scegli punto di partenza</button>}
-        {simulationMode && destination && simulationStart && <button onClick={simulationRunning ? stopSimulation : runSimulation}>{simulationRunning ? <><Pause size={16} /> Pausa</> : <><Play size={16} /> Avvia simulazione</>}</button>}
         {simulationMode && simulationStart && <button onClick={resetSimulation}><RotateCcw size={16} /> Reset</button>}
       </div>
 
       <div className="indoor-floor-status"><div><strong>{floorLabel}</strong><small>{simulationMode ? (simulationStart ? "Posizione simulata scelta manualmente sulla mappa" : "Scegli tu il punto di partenza") : position?.accuracy ? `Precisione orizzontale circa ${Math.round(position.accuracy)} m` : "Attiva la posizione per vedere dove sei"}{!simulationMode && position?.altitudeAccuracy ? ` · quota ±${Math.round(position.altitudeAccuracy)} m` : ""}</small></div>{levels.length > 1 && <div className="indoor-floor-confirm"><span>{simulationMode ? "Piano simulato:" : "Io sono al piano:"}</span>{levels.filter((x) => x !== "Tutti").map((x) => <button key={x} className={currentFloor === x ? "active" : ""} onClick={() => confirmFloor(x)}>{x}</button>)}</div>}</div>
-      <div className="indoor-map-wrap"><IndoorMap center={hub} points={visible} position={position} destination={destination} routePoints={routeInfo.route} onSelect={startGuide} pickingSimulationStart={pickingSimulationStart} onPickSimulationStart={handleSimulationStartPick} /><div className="indoor-map-legend"><span><b className="dot-user" /> {simulationMode ? "Posizione simulata" : "Tu"}</span><span><b className="dot-dest" /> Destinazione</span><span>{routeSegments.length ? `${routeSegments.length} percorsi interni` : `${points.length} punti`}</span></div></div>
-      {destination && <div className="indoor-navigation-card"><div><Navigation size={54} /></div><div><small>{simulationMode ? "Destinazione simulazione" : "Destinazione"}</small><h3>{destination.name}</h3><p>{destination.category}{destination.level ? ` · Piano ${destination.level}` : ""}</p>{navDistance !== null && <strong className="indoor-distance">{navDistance < 1000 ? `${Math.round(navDistance)} m` : `${(navDistance / 1000).toFixed(1)} km`}</strong>}<span className="indoor-route-text">{routeInfo.text}</span></div><button onClick={() => { stopSimulation(); setDestination(null); }}>Termina</button></div>}
+      <div className="indoor-map-wrap"><IndoorMap center={hub} points={visible} position={position} destination={destination} routePoints={remainingRoute} onSelect={startGuide} pickingSimulationStart={pickingSimulationStart} onPickSimulationStart={handleSimulationStartPick} /><div className="indoor-map-legend"><span><b className="dot-user" /> {simulationMode ? "Posizione simulata" : "Tu"}</span><span><b className="dot-dest" /> Destinazione</span><span>{checkpoints.length ? `${checkpointIndex + 1}/${checkpoints.length} checkpoint` : routeSegments.length ? `${routeSegments.length} percorsi interni` : `${points.length} punti`}</span></div></div>
+
+      {destination && <div className={`indoor-navigation-card ${navigationComplete ? "complete" : ""}`}>
+        <div>{navigationComplete ? <Flag size={54} /> : <Navigation size={54} />}</div>
+        <div>
+          <small>{navigationComplete ? "Destinazione raggiunta" : activeCheckpoint ? `Checkpoint ${checkpointIndex + 1} di ${checkpoints.length}` : "Preparazione percorso"}</small>
+          <h3>{navigationComplete ? destination.name : activeCheckpoint?.name || destination.name}</h3>
+          {!navigationComplete && activeCheckpoint && <p>{activeCheckpoint.instruction}{activeCheckpoint.level ? ` · Piano ${activeCheckpoint.level}` : ""}</p>}
+          {!navigationComplete && navDistance !== null && <strong className="indoor-distance">{navDistance < 1000 ? `${Math.round(navDistance)} m` : `${(navDistance / 1000).toFixed(1)} km`}</strong>}
+          {!navigationComplete && <span className="indoor-route-text">{activeCheckpoint ? "Quando raggiungi questo punto, conferma manualmente per ricevere la prossima tappa." : routeInfo.text}</span>}
+        </div>
+        <div className="checkpoint-actions">
+          {!navigationComplete && checkpointIndex > 0 && <button className="checkpoint-back" onClick={previousCheckpoint}><ChevronLeft size={18} /> Indietro</button>}
+          {!navigationComplete && activeCheckpoint && <button className="checkpoint-arrived" onClick={confirmCheckpoint}><Check size={20} /> SONO ARRIVATO <ArrowRight size={18} /></button>}
+          {navigationComplete && <button className="checkpoint-arrived" onClick={() => { stopGpsWatch(); resetCheckpointNavigation(); setDestination(null); }}><Check size={20} /> Fine navigazione</button>}
+          <button className="checkpoint-end" onClick={() => { stopGpsWatch(); resetCheckpointNavigation(); setDestination(null); }}>Termina</button>
+        </div>
+      </div>}
+
       {levels.length > 1 && <div className="indoor-level-row"><strong>Visualizza piano</strong>{levels.map((x) => <button key={x} className={level === x ? "active" : ""} onClick={() => setLevel(x)}>{x}</button>)}</div>}
       <div className="indoor-filter-row">{categories.slice(0, 14).map((x) => <button key={x} className={category === x ? "active" : ""} onClick={() => setCategory(x)}>{x}</button>)}</div>
       <div className="indoor-point-list">{visible.map((point) => <button key={point.id} onClick={() => startGuide(point)}><span className="indoor-point-icon"><MapPin size={18} /></span><span><small>{point.category}{point.level ? ` · Piano ${point.level}` : ""}</small><strong>{point.name}</strong>{point.wheelchair === "yes" && <em><Accessibility size={13} /> Accessibile</em>}</span><Navigation size={18} /></button>)}</div>
-      {points.length === 0 && !loading && <div className="indoor-empty"><Compass /><strong>Dettagli interni non disponibili</strong><p>La mappa della zona resta utilizzabile. Corridoi e navigazione precisa dipendono dai dati indoor pubblicati per quella struttura.</p></div>}
+      {points.length === 0 && !loading && <div className="indoor-empty"><Compass /><strong>Dettagli interni non disponibili</strong><p>La mappa della zona resta utilizzabile. Se la rete interna non è abbastanza dettagliata, Varga Tour usa checkpoint indicativi e la conferma manuale dell’utente.</p></div>}
     </section>}
-    <footer className="indoor-source">Mappa e dati: © OpenStreetMap contributors. Quando corridoi e passaggi pedonali sono mappati, Varga Tour calcola il percorso sulla rete interna; in assenza di geometrie sufficienti mostra un percorso indicativo. In simulazione la posizione è scelta manualmente e non usa il GPS reale.</footer>
+    <footer className="indoor-source">Mappa e dati: © OpenStreetMap contributors. La navigazione indoor procede a checkpoint: Varga Tour mostra una tappa alla volta e passa alla successiva solo dopo la conferma “Sono arrivato”. Il GPS resta un supporto e non decide automaticamente l’avanzamento.</footer>
   </main>;
 }
