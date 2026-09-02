@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { Plane, TrainFront } from "lucide-react";
+import styles from "./indoor-guide-launcher.module.css";
 
 export function IndoorGuideLauncher() {
   return (
-    <Link className="indoor-guide-launcher" href="/guida-interna" aria-label="Apri la guida interna per aeroporti e stazioni">
-      <span className="indoor-guide-launcher-icons"><Plane size={17} /><TrainFront size={17} /></span>
-      <span><strong>Guida interna</strong><small>Aeroporti e stazioni</small></span>
+    <Link className={styles.launcher} href="/guida-interna" aria-label="Apri la guida interna per aeroporti e stazioni">
+      <span className={styles.icons}><Plane size={16} /><TrainFront size={16} /></span>
+      <span className={styles.copy}><strong>Guida interna</strong><small>Aeroporti e stazioni</small></span>
     </Link>
   );
 }
