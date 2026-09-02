@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import { PoiMultimediaEnhancer } from "@/components/poi-multimedia-enhancer";
+import { IndoorGuideLauncher } from "@/components/indoor-guide-launcher";
 
 export const metadata: Metadata = {
   title: "Varga Tour — I luoghi ti parlano",
@@ -24,6 +25,7 @@ export default function RootLayout({
     <html lang="it">
       <body>
         {children}
+        <IndoorGuideLauncher />
         <PoiMultimediaEnhancer />
       </body>
     </html>
