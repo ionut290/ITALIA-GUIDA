@@ -13,13 +13,29 @@ type Props = {
   destination: Point | null;
   routePoints?: Array<{ lat: number; lng: number }>;
   onSelect: (point: Point) => void;
+  pickingSimulationStart?: boolean;
+  onPickSimulationStart?: (position: { lat: number; lng: number }) => void;
 };
 
-export function IndoorMap({ center, points, position, destination, routePoints = [], onSelect }: Props) {
+export function IndoorMap({
+  center,
+  points,
+  position,
+  destination,
+  routePoints = [],
+  onSelect,
+  pickingSimulationStart = false,
+  onPickSimulationStart,
+}: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const routeRef = useRef<Polyline | null>(null);
+  const pickingRef = useRef(pickingSimulationStart);
+  const pickHandlerRef = useRef(onPickSimulationStart);
+
+  useEffect(() => { pickingRef.current = pickingSimulationStart; }, [pickingSimulationStart]);
+  useEffect(() => { pickHandlerRef.current = onPickSimulationStart; }, [onPickSimulationStart]);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,10 +44,21 @@ export function IndoorMap({ center, points, position, destination, routePoints =
       if (mapRef.current) mapRef.current.remove();
       const map = L.map(hostRef.current, { zoomControl: true, attributionControl: true }).setView([center.lat, center.lng], 18);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, attribution: "© OpenStreetMap contributors" }).addTo(map);
+      map.on("click", (event) => {
+        if (!pickingRef.current || !pickHandlerRef.current) return;
+        pickHandlerRef.current({ lat: event.latlng.lat, lng: event.latlng.lng });
+      });
       points.forEach((point) => {
         const marker = L.circleMarker([point.lat, point.lng], { radius: 7, weight: 2, fillOpacity: .9 }).addTo(map);
         marker.bindTooltip(`${point.name}${point.level ? ` · Piano ${point.level}` : ""}`);
-        marker.on("click", () => onSelect(point));
+        marker.on("click", (event) => {
+          if (pickingRef.current && pickHandlerRef.current) {
+            L.DomEvent.stopPropagation(event);
+            pickHandlerRef.current({ lat: point.lat, lng: point.lng });
+            return;
+          }
+          onSelect(point);
+        });
       });
       mapRef.current = map;
       window.setTimeout(() => map.invalidateSize(), 100);
@@ -42,8 +69,10 @@ export function IndoorMap({ center, points, position, destination, routePoints =
   useEffect(() => {
     void import("leaflet").then((L) => {
       const map = mapRef.current;
-      if (!map || !position) return;
+      if (!map) return;
       userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      if (!position) return;
       userMarkerRef.current = L.marker([position.lat, position.lng]).addTo(map).bindTooltip("Tu sei qui", { permanent: false });
       if (!destination) map.panTo([position.lat, position.lng]);
     });
@@ -61,5 +90,5 @@ export function IndoorMap({ center, points, position, destination, routePoints =
     });
   }, [position, destination, routePoints]);
 
-  return <div className="indoor-map" ref={hostRef} aria-label="Mappa interna con posizione, destinazione e percorso" />;
+  return <div className="indoor-map" ref={hostRef} aria-label={pickingSimulationStart ? "Tocca la mappa per scegliere il punto di partenza simulato" : "Mappa interna con posizione, destinazione e percorso"} />;
 }
