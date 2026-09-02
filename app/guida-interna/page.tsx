@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Compass, LocateFixed, MapPin, Navigation, Plane, Search, TrainFront, Accessibility, Building2, ShoppingCart, Play, Pause, RotateCcw, Crosshair } from "lucide-react";
 import { IndoorMap } from "@/components/indoor-map";
-import { advanceAlongRoute, routeLengthMeters, shortestIndoorPath, type IndoorRouteSegment } from "@/lib/indoor-routing";
+import { advanceAlongRoute, landmarkFallbackPath, routeLengthMeters, shortestIndoorPath, type IndoorLandmark, type IndoorRouteSegment } from "@/lib/indoor-routing";
 
 type Hub = { id: string; name: string; subtitle?: string; type: "airport" | "station" | "mall" | "supermarket" | "hospital" | "university" | "building"; lat: number; lng: number };
 type IndoorPoint = { id: string; name: string; category: string; level?: string; wheelchair?: string; lat: number; lng: number };
@@ -41,6 +41,15 @@ function numericLevel(value?: string) {
   const first = value.split(";")[0].trim().replace(",", ".");
   const number = Number(first);
   return Number.isFinite(number) ? number : null;
+}
+
+function landmarkDirections(landmarks: IndoorLandmark[], destination: IndoorPoint) {
+  if (!landmarks.length) return `Continua verso ${destination.name}.`;
+  const names = landmarks.slice(0, 4).map((item) => item.name).filter(Boolean);
+  if (names.length === 1) return `Vai fino a ${names[0]}, poi continua verso ${destination.name}.`;
+  const first = names[0];
+  const middle = names.slice(1).map((name) => `poi ${name}`).join(", ");
+  return `Vai fino a ${first}, ${middle}, quindi continua verso ${destination.name}.`;
 }
 
 export default function IndoorGuidePage() {
@@ -213,30 +222,48 @@ export default function IndoorGuidePage() {
   const verticalConnectors = useMemo(() => points.filter((p) => ["Ascensore", "Scale", "Scala mobile"].includes(p.category)), [points]);
 
   const routeInfo = useMemo(() => {
-    if (!position || !destination) return { route: [] as Array<{ lat: number; lng: number }>, text: "", routed: false };
+    if (!position || !destination) return { route: [] as Array<{ lat: number; lng: number }>, text: "", routed: false, fallback: false };
     const destinationFloor = destination.level || null;
+    const fallback = (wantedLevel?: string | null) => {
+      const landmarks = points.filter((p) => p.id !== destination.id) as IndoorLandmark[];
+      const result = landmarkFallbackPath(landmarks, position, destination, wantedLevel);
+      if (!result) return null;
+      return {
+        route: result.route,
+        text: `Percorso per punti di riferimento. ${landmarkDirections(result.landmarks, destination)}`,
+        routed: true,
+        fallback: true,
+      };
+    };
+
     if (!currentFloor || !destinationFloor || currentFloor === destinationFloor) {
       const path = shortestIndoorPath(routeSegments, position, destination, currentFloor || destinationFloor);
-      if (path) return { route: path, text: `Percorso interno${destinationFloor ? ` sul piano ${destinationFloor}` : ""}: seguo corridoi e passaggi pedonali mappati.`, routed: true };
-      return { route: [position, destination], text: simulationMode ? "Percorso simulato indicativo: in questa zona non risultano corridoi collegati nei dati pubblici." : "Percorso indicativo: rete pedonale interna non abbastanza dettagliata in questa zona.", routed: false };
+      if (path) return { route: path, text: `Percorso interno${destinationFloor ? ` sul piano ${destinationFloor}` : ""}: seguo corridoi e passaggi pedonali mappati.`, routed: true, fallback: false };
+      const landmarkRoute = fallback(currentFloor || destinationFloor);
+      if (landmarkRoute) return landmarkRoute;
+      return { route: [position, destination], text: simulationMode ? "Percorso simulato indicativo: non risultano corridoi collegati né abbastanza punti di riferimento utili." : "Percorso indicativo: rete pedonale interna e punti di riferimento non abbastanza dettagliati.", routed: false, fallback: false };
     }
+
     const currentCandidates = verticalConnectors.filter((p) => p.level === currentFloor);
     const destinationCandidates = verticalConnectors.filter((p) => p.level === destinationFloor);
     if (!currentCandidates.length || !destinationCandidates.length) {
-      return { route: [position, destination], text: `Devi passare dal piano ${currentFloor} al piano ${destinationFloor}; collegamento verticale non completamente mappato.`, routed: false };
+      const landmarkRoute = fallback(null);
+      if (landmarkRoute) return { ...landmarkRoute, text: `Cambio piano non completamente mappato. ${landmarkRoute.text}` };
+      return { route: [position, destination], text: `Devi passare dal piano ${currentFloor} al piano ${destinationFloor}; collegamento verticale non completamente mappato.`, routed: false, fallback: false };
     }
     const startConnector = currentCandidates.reduce((best, item) => distanceMeters(position, item) < distanceMeters(position, best) ? item : best);
     const endConnector = destinationCandidates.reduce((best, item) => distanceMeters(destination, item) < distanceMeters(destination, best) ? item : best);
-    const firstLeg = shortestIndoorPath(routeSegments, position, startConnector, currentFloor) || [position, startConnector];
-    const lastLeg = shortestIndoorPath(routeSegments, endConnector, destination, destinationFloor) || [endConnector, destination];
+    const firstLeg = shortestIndoorPath(routeSegments, position, startConnector, currentFloor) || landmarkFallbackPath(points as IndoorLandmark[], position, startConnector, currentFloor)?.route || [position, startConnector];
+    const lastLeg = shortestIndoorPath(routeSegments, endConnector, destination, destinationFloor) || landmarkFallbackPath(points as IndoorLandmark[], endConnector, destination, destinationFloor)?.route || [endConnector, destination];
     const route = [...firstLeg, endConnector, ...lastLeg.slice(1)];
     const routed = firstLeg.length > 2 || lastLeg.length > 2;
     return {
       route,
-      text: `Segui il percorso fino a ${startConnector.name}, passa al piano ${destinationFloor} e continua lungo i corridoi verso ${destination.name}.`,
+      text: `Segui il percorso fino a ${startConnector.name}, passa al piano ${destinationFloor} e continua verso ${destination.name}.`,
       routed,
+      fallback: false,
     };
-  }, [position, destination, currentFloor, verticalConnectors, simulationMode, routeSegments]);
+  }, [position, destination, currentFloor, verticalConnectors, simulationMode, routeSegments, points]);
 
   function runSimulation() {
     if (!simulationMode || !simulationStart || !destination) {
@@ -247,11 +274,11 @@ export default function IndoorGuidePage() {
     const simulationRoute = routeInfo.route.length >= 2 ? routeInfo.route : [simulationStart, destination];
     setPosition(simulationStart);
     setSimulationRunning(true);
-    setMessage(`Simulazione in corso verso ${destination.name}${routeInfo.routed ? " lungo il percorso interno" : ""}.`);
+    setMessage(`Simulazione in corso verso ${destination.name}${routeInfo.fallback ? " usando i punti di riferimento" : routeInfo.routed ? " lungo il percorso interno" : ""}.`);
     simulationRef.current = window.setInterval(() => {
       setPosition((previous) => {
         const from = previous ?? simulationStart;
-        const advanced = advanceAlongRoute(simulationRoute, from, 4);
+        const advanced = advanceAlongRoute(simulationRoute, from, 0.7);
         if (advanced.reached) {
           if (simulationRef.current !== null) window.clearInterval(simulationRef.current);
           simulationRef.current = null;
@@ -290,13 +317,13 @@ export default function IndoorGuidePage() {
       </div>
 
       <div className="indoor-floor-status"><div><strong>{floorLabel}</strong><small>{simulationMode ? (simulationStart ? "Posizione simulata scelta manualmente sulla mappa" : "Scegli tu il punto di partenza") : position?.accuracy ? `Precisione orizzontale circa ${Math.round(position.accuracy)} m` : "Attiva la posizione per vedere dove sei"}{!simulationMode && position?.altitudeAccuracy ? ` · quota ±${Math.round(position.altitudeAccuracy)} m` : ""}</small></div>{levels.length > 1 && <div className="indoor-floor-confirm"><span>{simulationMode ? "Piano simulato:" : "Io sono al piano:"}</span>{levels.filter((x) => x !== "Tutti").map((x) => <button key={x} className={currentFloor === x ? "active" : ""} onClick={() => confirmFloor(x)}>{x}</button>)}</div>}</div>
-      <div className="indoor-map-wrap"><IndoorMap center={hub} points={visible} position={position} destination={destination} routePoints={routeInfo.route} onSelect={startGuide} pickingSimulationStart={pickingSimulationStart} onPickSimulationStart={handleSimulationStartPick} /><div className="indoor-map-legend"><span><b className="dot-user" /> {simulationMode ? "Posizione simulata" : "Tu"}</span><span><b className="dot-dest" /> Destinazione</span><span>{routeSegments.length ? `${routeSegments.length} percorsi interni` : `${points.length} punti`}</span></div></div>
+      <div className="indoor-map-wrap"><IndoorMap center={hub} points={visible} position={position} destination={destination} routePoints={routeInfo.route} onSelect={startGuide} pickingSimulationStart={pickingSimulationStart} onPickSimulationStart={handleSimulationStartPick} /><div className="indoor-map-legend"><span><b className="dot-user" /> {simulationMode ? "Posizione simulata" : "Tu"}</span><span><b className="dot-dest" /> Destinazione</span><span>{routeInfo.fallback ? "Percorso tramite punti" : routeSegments.length ? `${routeSegments.length} percorsi interni` : `${points.length} punti`}</span></div></div>
       {destination && <div className="indoor-navigation-card"><div><Navigation size={54} /></div><div><small>{simulationMode ? "Destinazione simulazione" : "Destinazione"}</small><h3>{destination.name}</h3><p>{destination.category}{destination.level ? ` · Piano ${destination.level}` : ""}</p>{navDistance !== null && <strong className="indoor-distance">{navDistance < 1000 ? `${Math.round(navDistance)} m` : `${(navDistance / 1000).toFixed(1)} km`}</strong>}<span className="indoor-route-text">{routeInfo.text}</span></div><button onClick={() => { stopSimulation(); setDestination(null); }}>Termina</button></div>}
       {levels.length > 1 && <div className="indoor-level-row"><strong>Visualizza piano</strong>{levels.map((x) => <button key={x} className={level === x ? "active" : ""} onClick={() => setLevel(x)}>{x}</button>)}</div>}
       <div className="indoor-filter-row">{categories.slice(0, 14).map((x) => <button key={x} className={category === x ? "active" : ""} onClick={() => setCategory(x)}>{x}</button>)}</div>
       <div className="indoor-point-list">{visible.map((point) => <button key={point.id} onClick={() => startGuide(point)}><span className="indoor-point-icon"><MapPin size={18} /></span><span><small>{point.category}{point.level ? ` · Piano ${point.level}` : ""}</small><strong>{point.name}</strong>{point.wheelchair === "yes" && <em><Accessibility size={13} /> Accessibile</em>}</span><Navigation size={18} /></button>)}</div>
       {points.length === 0 && !loading && <div className="indoor-empty"><Compass /><strong>Dettagli interni non disponibili</strong><p>La mappa della zona resta utilizzabile. Corridoi e navigazione precisa dipendono dai dati indoor pubblicati per quella struttura.</p></div>}
     </section>}
-    <footer className="indoor-source">Mappa e dati: © OpenStreetMap contributors. Quando corridoi e passaggi pedonali sono mappati, Varga Tour calcola il percorso sulla rete interna; in assenza di geometrie sufficienti mostra un percorso indicativo. In simulazione la posizione è scelta manualmente e non usa il GPS reale.</footer>
+    <footer className="indoor-source">Mappa e dati: © OpenStreetMap contributors. Quando corridoi e passaggi pedonali sono mappati, Varga Tour calcola il percorso sulla rete interna; se la rete è incompleta prova automaticamente una catena di punti di riferimento. In simulazione la posizione si muove a velocità di camminata realistica.</footer>
   </main>;
 }
