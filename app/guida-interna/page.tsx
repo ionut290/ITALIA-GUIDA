@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Compass, Crosshair, LocateFixed, MapPin, Navigation, Plane, Search, TrainFront, Wheelchair } from "lucide-react";
+import { ArrowLeft, Compass, LocateFixed, MapPin, Navigation, Plane, Search, TrainFront, Accessibility } from "lucide-react";
 
- type Hub = { id: string; name: string; subtitle?: string; type: "airport" | "station"; lat: number; lng: number };
- type IndoorPoint = { id: string; name: string; category: string; level?: string; wheelchair?: string; lat: number; lng: number };
- type Position = { lat: number; lng: number; accuracy?: number };
+type Hub = { id: string; name: string; subtitle?: string; type: "airport" | "station"; lat: number; lng: number };
+type IndoorPoint = { id: string; name: string; category: string; level?: string; wheelchair?: string; lat: number; lng: number };
+type Position = { lat: number; lng: number; accuracy?: number };
 
 function distanceMeters(a: Position, b: Position) {
   const r = 6371000;
@@ -117,57 +117,21 @@ export default function IndoorGuidePage() {
 
   const categories = useMemo(() => ["Tutti", ...Array.from(new Set(points.map((p) => p.category))).sort()], [points]);
   const visiblePoints = useMemo(() => points.filter((p) => category === "Tutti" || p.category === category), [points, category]);
-  const nav = destination && position ? {
-    distance: distanceMeters(position, destination),
-    bearing: bearing(position, destination),
-  } : null;
+  const nav = destination && position ? { distance: distanceMeters(position, destination), bearing: bearing(position, destination) } : null;
   const relative = nav ? nav.bearing - heading : 0;
 
   return (
     <main className="indoor-page">
-      <header className="indoor-topbar">
-        <Link href="/" className="indoor-back"><ArrowLeft size={18} /> Varga Tour</Link>
-        <div><strong>Guida interna</strong><small>Aeroporti e stazioni italiane</small></div>
-      </header>
-
-      <section className="indoor-hero">
-        <div><p className="eyebrow"><Plane size={16} /><TrainFront size={16} /> Navigazione dentro le strutture</p><h1>Dove vuoi arrivare?</h1><p>Scegli aeroporto o stazione, poi seleziona gate, binario, uscita, bagni, biglietteria, ascensore o altro punto disponibile.</p></div>
-        <button className="indoor-locate" onClick={locate} disabled={loading}><LocateFixed /> Usa la mia posizione</button>
-      </section>
-
-      <section className="indoor-search-panel">
-        <div className="indoor-search"><Search size={19} /><input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void searchHub()} placeholder="Es. Bologna Centrale, Fiumicino, Malpensa…" /><button onClick={() => void searchHub()} disabled={loading}>Cerca</button></div>
-        <p className="indoor-status">{loading ? "Caricamento…" : message}</p>
-      </section>
-
-      {!hub && (nearby.length > 0 || results.length > 0) && <section className="indoor-hub-grid">
-        {(results.length ? results : nearby).map((item) => <button key={item.id} className="indoor-hub-card" onClick={() => void openHub(item)}>
-          <span className="indoor-hub-icon">{item.type === "airport" ? <Plane /> : <TrainFront />}</span>
-          <span><small>{item.type === "airport" ? "Aeroporto" : "Stazione"}</small><strong>{item.name}</strong>{item.subtitle && <em>{item.subtitle}</em>}</span>
-          <Navigation size={19} />
-        </button>)}
-      </section>}
-
-      {hub && <section className="indoor-workspace">
-        <div className="indoor-workspace-head"><div><small>{hub.type === "airport" ? "Aeroporto" : "Stazione"}</small><h2>{hub.name}</h2><p>{detailed ? "Mappatura interna dettagliata disponibile." : "Copertura interna parziale: userò i punti pubblici disponibili."}</p></div><button onClick={() => { setHub(null); setDestination(null); setPoints([]); }}>Cambia struttura</button></div>
-
-        {destination && <div className="indoor-navigation-card">
-          <div className="indoor-arrow" style={{ transform: `rotate(${relative}deg)` }}><Navigation size={64} /></div>
-          <div><small>Stai andando verso</small><h3>{destination.name}</h3><p>{destination.category}{destination.level ? ` · Livello ${destination.level}` : ""}</p>
-            {nav ? <><strong className="indoor-distance">{nav.distance < 1000 ? `${Math.round(nav.distance)} m` : `${(nav.distance / 1000).toFixed(1)} km`}</strong><span>Direzione {directionText(nav.bearing)}</span></> : <span>Attivo la tua posizione per guidarti.</span>}
-          </div>
-          <button onClick={() => { setDestination(null); if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }}>Termina</button>
-        </div>}
-
+      <header className="indoor-topbar"><Link href="/" className="indoor-back"><ArrowLeft size={18} /> Varga Tour</Link><div><strong>Guida interna</strong><small>Aeroporti e stazioni italiane</small></div></header>
+      <section className="indoor-hero"><div><p className="eyebrow"><Plane size={16} /><TrainFront size={16} /> Navigazione dentro le strutture</p><h1>Dove vuoi arrivare?</h1><p>Scegli aeroporto o stazione, poi seleziona gate, binario, uscita, bagni, biglietteria, ascensore o altro punto disponibile.</p></div><button className="indoor-locate" onClick={locate} disabled={loading}><LocateFixed /> Usa la mia posizione</button></section>
+      <section className="indoor-search-panel"><div className="indoor-search"><Search size={19} /><input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void searchHub()} placeholder="Es. Bologna Centrale, Fiumicino, Malpensa…" /><button onClick={() => void searchHub()} disabled={loading}>Cerca</button></div><p className="indoor-status">{loading ? "Caricamento…" : message}</p></section>
+      {!hub && (nearby.length > 0 || results.length > 0) && <section className="indoor-hub-grid">{(results.length ? results : nearby).map((item) => <button key={item.id} className="indoor-hub-card" onClick={() => void openHub(item)}><span className="indoor-hub-icon">{item.type === "airport" ? <Plane /> : <TrainFront />}</span><span><small>{item.type === "airport" ? "Aeroporto" : "Stazione"}</small><strong>{item.name}</strong>{item.subtitle && <em>{item.subtitle}</em>}</span><Navigation size={19} /></button>)}</section>}
+      {hub && <section className="indoor-workspace"><div className="indoor-workspace-head"><div><small>{hub.type === "airport" ? "Aeroporto" : "Stazione"}</small><h2>{hub.name}</h2><p>{detailed ? "Mappatura interna dettagliata disponibile." : "Copertura interna parziale: userò i punti pubblici disponibili."}</p></div><button onClick={() => { setHub(null); setDestination(null); setPoints([]); }}>Cambia struttura</button></div>
+        {destination && <div className="indoor-navigation-card"><div className="indoor-arrow" style={{ transform: `rotate(${relative}deg)` }}><Navigation size={64} /></div><div><small>Stai andando verso</small><h3>{destination.name}</h3><p>{destination.category}{destination.level ? ` · Livello ${destination.level}` : ""}</p>{nav ? <><strong className="indoor-distance">{nav.distance < 1000 ? `${Math.round(nav.distance)} m` : `${(nav.distance / 1000).toFixed(1)} km`}</strong><span>Direzione {directionText(nav.bearing)}</span></> : <span>Attivo la tua posizione per guidarti.</span>}</div><button onClick={() => { setDestination(null); if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }}>Termina</button></div>}
         <div className="indoor-filter-row">{categories.slice(0, 12).map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>
-        <div className="indoor-point-list">{visiblePoints.map((point) => <button key={point.id} onClick={() => startGuide(point)}>
-          <span className="indoor-point-icon">{point.category === "Gate" ? <Plane size={18} /> : point.category.includes("Binario") ? <TrainFront size={18} /> : <MapPin size={18} />}</span>
-          <span><small>{point.category}{point.level ? ` · Livello ${point.level}` : ""}</small><strong>{point.name}</strong>{point.wheelchair === "yes" && <em><Wheelchair size={13} /> Accessibile</em>}</span>
-          <Navigation size={18} />
-        </button>)}</div>
+        <div className="indoor-point-list">{visiblePoints.map((point) => <button key={point.id} onClick={() => startGuide(point)}><span className="indoor-point-icon">{point.category === "Gate" ? <Plane size={18} /> : point.category.includes("Binario") ? <TrainFront size={18} /> : <MapPin size={18} />}</span><span><small>{point.category}{point.level ? ` · Livello ${point.level}` : ""}</small><strong>{point.name}</strong>{point.wheelchair === "yes" && <em><Accessibility size={13} /> Accessibile</em>}</span><Navigation size={18} /></button>)}</div>
         {points.length === 0 && !loading && <div className="indoor-empty"><Compass /><strong>Mappa interna non ancora disponibile</strong><p>Varga Tour può comunque portarti all’ingresso della struttura; la guida dettagliata comparirà automaticamente quando OpenStreetMap contiene gate, binari, livelli o servizi interni.</p></div>}
       </section>}
-
       <footer className="indoor-source">Dati cartografici: © OpenStreetMap contributors. La precisione GPS può diminuire all’interno di edifici, gallerie e piani sotterranei.</footer>
     </main>
   );
