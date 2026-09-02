@@ -1,5 +1,7 @@
 export type IndoorCoordinate = { lat: number; lng: number };
 export type IndoorRouteSegment = { id: string; level?: string; kind?: string; coordinates: IndoorCoordinate[] };
+export type IndoorLandmark = IndoorCoordinate & { id: string; name: string; category?: string; level?: string };
+export type LandmarkFallbackRoute = { route: IndoorCoordinate[]; landmarks: IndoorLandmark[] };
 
 type GraphEdge = { to: string; weight: number };
 type GraphNode = IndoorCoordinate & { key: string };
@@ -113,6 +115,97 @@ export function shortestIndoorPath(
   return [start, ...path, end];
 }
 
+function levelMatches(landmark: IndoorLandmark, level?: string | null) {
+  if (!level || !landmark.level) return true;
+  return landmark.level.split(';').map((x) => x.trim()).includes(level);
+}
+
+export function landmarkFallbackPath(
+  landmarks: IndoorLandmark[],
+  start: IndoorCoordinate,
+  end: IndoorCoordinate,
+  level?: string | null,
+): LandmarkFallbackRoute | null {
+  const direct = indoorDistanceMeters(start, end);
+  if (direct < 12) return { route: [start, end], landmarks: [] };
+
+  const usable = landmarks
+    .filter((item) => levelMatches(item, level))
+    .filter((item) => indoorDistanceMeters(item, start) > 4 && indoorDistanceMeters(item, end) > 4)
+    .filter((item) => indoorDistanceMeters(item, start) <= direct * 1.35 + 80 || indoorDistanceMeters(item, end) <= direct * 1.35 + 80)
+    .slice(0, 420);
+
+  if (!usable.length) return null;
+
+  type Node = IndoorCoordinate & { id: string; landmark?: IndoorLandmark };
+  const nodes: Node[] = [
+    { ...start, id: '__start' },
+    ...usable.map((item) => ({ ...item, id: item.id, landmark: item })),
+    { ...end, id: '__end' },
+  ];
+  const endIndex = nodes.length - 1;
+  const maxLink = Math.min(85, Math.max(38, direct / 4));
+  const edges = new Map<number, Array<{ to: number; weight: number }>>();
+  for (let i = 0; i < nodes.length; i++) edges.set(i, []);
+
+  for (let i = 0; i < nodes.length; i++) {
+    const ranked: Array<{ j: number; d: number }> = [];
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      const d = indoorDistanceMeters(nodes[i], nodes[j]);
+      if (d <= maxLink || (i === 0 && d <= 95) || (j === endIndex && d <= 95)) ranked.push({ j, d });
+    }
+    ranked.sort((a, b) => a.d - b.d);
+    for (const candidate of ranked.slice(0, 8)) {
+      const progressBefore = indoorDistanceMeters(nodes[i], end);
+      const progressAfter = indoorDistanceMeters(nodes[candidate.j], end);
+      const backwardsPenalty = progressAfter > progressBefore + 20 ? 1.45 : 1;
+      const categoryPenalty = nodes[candidate.j].landmark?.category === 'Corridoio' ? 0.92 : 1;
+      edges.get(i)!.push({ to: candidate.j, weight: candidate.d * backwardsPenalty * categoryPenalty });
+    }
+  }
+
+  const dist = new Array(nodes.length).fill(Number.POSITIVE_INFINITY);
+  const prev = new Array<number>(nodes.length).fill(-1);
+  const visited = new Array(nodes.length).fill(false);
+  dist[0] = 0;
+
+  for (let count = 0; count < nodes.length; count++) {
+    let current = -1;
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < nodes.length; i++) {
+      if (!visited[i] && dist[i] < best) { best = dist[i]; current = i; }
+    }
+    if (current < 0 || current === endIndex) break;
+    visited[current] = true;
+    for (const edge of edges.get(current) ?? []) {
+      const candidate = dist[current] + edge.weight;
+      if (candidate < dist[edge.to]) {
+        dist[edge.to] = candidate;
+        prev[edge.to] = current;
+      }
+    }
+  }
+
+  if (!Number.isFinite(dist[endIndex])) return null;
+  const indexes: number[] = [];
+  let cursor = endIndex;
+  while (cursor >= 0) {
+    indexes.push(cursor);
+    if (cursor === 0) break;
+    cursor = prev[cursor];
+  }
+  if (indexes[indexes.length - 1] !== 0) return null;
+  indexes.reverse();
+
+  const route = indexes.map((index) => ({ lat: nodes[index].lat, lng: nodes[index].lng }));
+  const usedLandmarks = indexes.slice(1, -1).map((index) => nodes[index].landmark).filter(Boolean) as IndoorLandmark[];
+  if (!usedLandmarks.length && direct > 80) return null;
+  const fallbackLength = routeLengthMeters(route);
+  if (fallbackLength > direct * 1.9 + 120) return null;
+  return { route, landmarks: usedLandmarks };
+}
+
 export function routeLengthMeters(route: IndoorCoordinate[]) {
   let total = 0;
   for (let i = 1; i < route.length; i++) total += indoorDistanceMeters(route[i - 1], route[i]);
@@ -127,8 +220,6 @@ export function advanceAlongRoute(route: IndoorCoordinate[], current: IndoorCoor
     const d = indoorDistanceMeters(current, route[i]);
     if (d < nearestDistance) { nearestDistance = d; nearestIndex = i; }
   }
-  // La pagina storicamente passa 4 m ogni 500 ms. Limitiamo lo spostamento a
-  // circa 0,7 m per tick (~1,4 m/s), una velocità di camminata realistica.
   let remaining = Math.min(Math.max(stepMeters, 0.05), 0.7);
   let from = current;
   for (let i = Math.max(1, nearestIndex + 1); i < route.length; i++) {
