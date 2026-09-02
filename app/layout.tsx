@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
+import "./guida-interna/indoor-guide.css";
 import { PoiMultimediaEnhancer } from "@/components/poi-multimedia-enhancer";
 import { IndoorGuideLauncher } from "@/components/indoor-guide-launcher";
 
