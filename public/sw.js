@@ -1,11 +1,10 @@
-const CACHE = "varga-tour-v13";
+const CACHE = "varga-tour-v14";
 const CORE = [
   "/", "/manifest.webmanifest", "/favicon.svg",
   "/images/ai/piazza-maggiore-rinascimento.jpg",
   "/images/ai/bologna-torri-medievali.jpg",
   "/images/ai/san-luca-portico-storico.jpg",
   "/images/ai/nettuno-cinquecento.jpg",
-  "/images/ai/canale-moline-seta.jpg",
   "/images/ai/santo-stefano-medievale.jpg",
 ];
 
