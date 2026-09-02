@@ -1,0 +1,1 @@
+Routing interno: usa i punti OSM disponibili e i collegamenti verticali mappati. Nessun corridoio viene inventato quando i dati sono assenti. Il rilevamento del piano resta una stima relativa dopo conferma iniziale del piano.
