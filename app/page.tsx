@@ -1368,7 +1368,7 @@ export default function Home() {
               return <button key={category.id} type="button" className={`${selectedCategory ? "selected" : ""} ${category.id === "adulti" ? "adult-category" : ""}`} aria-pressed={selectedCategory} onClick={() => toggleDraftGuideCategory(category.id)}>{selectedCategory && <Check />}{category.label}</button>;
             })}
           </div>
-          <p className="adult-category-note">La categoria 18+ è separata e resta esclusa da “Tutto”. Si attiva soltanto con una scelta esplicita.</p>
+          <p className="adult-category-note">La categoria 18+ è separata e resta esclusa da “Tutto”. Include esclusivamente attività legali e pubblicamente catalogate, come lap dance, club per adulti, sexy shop, cinema per adulti, love hotel ed eventuali agenzie escort presenti su OpenStreetMap. Non mostra contenuti pornografici.</p>
           <SheetFooter><Button size="lg" className="primary-action" onClick={applyGuideCategories} disabled={!draftGuideCategories.length}>Applica</Button></SheetFooter>
         </SheetContent>
       </Sheet>
