@@ -74,6 +74,18 @@ type OsmPoiItem = {
   sourceUrl: string;
 };
 
+type GuideCategoryId =
+  | "tutto" | "cultura" | "musei" | "culto" | "natura" | "spiagge" | "ristoranti" | "bar"
+  | "shopping" | "centri-commerciali" | "mercati" | "tour" | "divertimento" | "cinema-teatri"
+  | "sport" | "famiglia" | "zoo-acquari" | "discoteche" | "vita-notturna" | "adulti";
+
+type GuideCategoryOption = {
+  id: GuideCategoryId;
+  label: string;
+  backend: "tutto" | "cultura" | "natura" | "cibo" | "shopping" | "divertimento" | "notte" | "famiglia" | "tour" | "adulti";
+  match?: RegExp;
+};
+
 type SmartStop = {
   id: string;
   title: string;
@@ -107,6 +119,55 @@ type LandmarkRecognition = {
   lat?: number;
   lng?: number;
 };
+
+const GUIDE_CATEGORIES: GuideCategoryOption[] = [
+  { id: "tutto", label: "Tutto", backend: "tutto" },
+  { id: "cultura", label: "Cultura e monumenti", backend: "cultura", match: /attrazione turistica|monumento|storico|castello|sito archeologico|memoriale|faro|piazza|palazzo|torre/i },
+  { id: "musei", label: "Musei e arte", backend: "cultura", match: /museo|galleria|opera d.?arte|arte/i },
+  { id: "culto", label: "Chiese e luoghi di culto", backend: "cultura", match: /culto|chiesa|basilica|cattedrale|santuario/i },
+  { id: "natura", label: "Natura e panorami", backend: "natura", match: /parco|riserva|giardino|panoram|cima|grotta|cascata|sorgente/i },
+  { id: "spiagge", label: "Spiagge", backend: "natura", match: /spiaggia/i },
+  { id: "ristoranti", label: "Ristoranti e cibo", backend: "cibo", match: /ristorante|fast food|ristorazione|gelateria|forno|gastronom|cibo/i },
+  { id: "bar", label: "Bar e caffè", backend: "cibo", match: /bar|caffè|pub/i },
+  { id: "shopping", label: "Shopping", backend: "shopping", match: /^shopping$/i },
+  { id: "centri-commerciali", label: "Centri commerciali", backend: "shopping", match: /centro commerciale/i },
+  { id: "mercati", label: "Mercati", backend: "shopping", match: /mercato/i },
+  { id: "tour", label: "Tour ed esperienze", backend: "tour", match: /tour|informazioni turistiche|attrazione turistica|punto panoramico/i },
+  { id: "divertimento", label: "Divertimento", backend: "divertimento", match: /parco divertimenti|parco acquatico|escape room|sala giochi|bowling/i },
+  { id: "cinema-teatri", label: "Cinema e teatri", backend: "divertimento", match: /cinema|teatro/i },
+  { id: "sport", label: "Sport", backend: "divertimento", match: /sport/i },
+  { id: "famiglia", label: "Famiglia", backend: "famiglia", match: /area giochi|parco|zoo|acquario|divertimenti|acquatico|sala giochi/i },
+  { id: "zoo-acquari", label: "Zoo e acquari", backend: "famiglia", match: /zoo|acquario/i },
+  { id: "discoteche", label: "Discoteche e club", backend: "notte", match: /discoteca|club/i },
+  { id: "vita-notturna", label: "Vita notturna", backend: "notte", match: /discoteca|bar|pub|locale musica|club/i },
+  { id: "adulti", label: "18+", backend: "adulti", match: /18\+|adulti/i },
+];
+
+const GUIDE_CATEGORY_STORAGE_KEY = "varga-tour-guide-categories";
+const DEFAULT_BACKEND_CATEGORIES = "cultura,natura,cibo,shopping,divertimento,notte,famiglia,tour";
+
+function validGuideCategories(value: unknown): GuideCategoryId[] {
+  if (!Array.isArray(value)) return ["tutto"];
+  const valid = value.filter((item): item is GuideCategoryId => typeof item === "string" && GUIDE_CATEGORIES.some((category) => category.id === item));
+  if (!valid.length || valid.includes("tutto")) return ["tutto"];
+  return [...new Set(valid)];
+}
+
+function backendCategories(categories: GuideCategoryId[]) {
+  // "Tutto" include tutte le categorie generali, mentre i POI 18+ richiedono sempre una scelta esplicita.
+  if (!categories.length || categories.includes("tutto")) return DEFAULT_BACKEND_CATEGORIES;
+  return [...new Set(categories.map((id) => GUIDE_CATEGORIES.find((category) => category.id === id)?.backend).filter(Boolean))].join(",");
+}
+
+function isCulturalSelection(categories: GuideCategoryId[]) {
+  return categories.includes("tutto") || categories.some((category) => category === "cultura" || category === "musei" || category === "culto" || category === "tour");
+}
+
+function matchesGuideCategories(place: Pick<NearbyPlace, "source" | "title" | "category" | "extract">, categories: GuideCategoryId[]) {
+  if (!categories.length || categories.includes("tutto")) return true;
+  const text = `${place.category || ""} ${place.title} ${place.extract || ""}`;
+  return categories.some((id) => GUIDE_CATEGORIES.find((category) => category.id === id)?.match?.test(text));
+}
 
 const commonsFile = (name: string) =>
   `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=1400`;
@@ -303,8 +364,28 @@ function smartInterestScore(place: { title: string; category?: string; extract?:
     cibo: /mercato|cibo|gastronom|osteria|ristor|food|vino/,
     famiglia: /parco|muse|zoo|acquario|bambin|science|scienza/,
     misteri: /leggenda|mister|segreto|sotterrane|fantasm|curiosità/,
+    shopping: /shopping|negozio|centro commerciale|mercato/,
+    ristoranti: /ristorante|osteria|trattoria|pizzeria|fast food|ristorazione|gelateria/,
+    bar: /bar|caffè|cafe|pub/,
+    divertimento: /divertiment|cinema|teatro|bowling|escape room|sala giochi|parco acquatico/,
+    tour: /tour|esperienz|informazioni turistiche|attrazione turistica|punto panoramico/,
+    spiagge: /spiaggia|lido|stabilimento balneare/,
+    sport: /sport|stadio|palestra|piscina|tennis/,
+    notte: /vita notturna|discoteca|nightclub|club|locale musica|pub/,
+    adulti: /18\+|adulti|casinò/,
   };
   return interests.reduce((score, interest) => score + (patterns[interest]?.test(text) ? 3 : 0), 0);
+}
+
+function guideCategoriesForSmartInterests(interests: string[]): GuideCategoryId[] {
+  if (!interests.length || interests.includes("tutto")) return ["tutto"];
+  const mapping: Record<string, GuideCategoryId[]> = {
+    storia: ["cultura"], arte: ["musei", "culto"], misteri: ["cultura"], natura: ["natura"], cibo: ["ristoranti", "mercati"],
+    famiglia: ["famiglia"], shopping: ["shopping", "centri-commerciali", "mercati"], ristoranti: ["ristoranti"], bar: ["bar"],
+    divertimento: ["divertimento", "cinema-teatri"], tour: ["tour"], spiagge: ["spiagge"], sport: ["sport"],
+    notte: ["vita-notturna", "discoteche"], adulti: ["adulti"],
+  };
+  return [...new Set(interests.flatMap((interest) => mapping[interest] || []))];
 }
 
 function youtubeVideoId(value: string) {
@@ -393,6 +474,12 @@ export default function Home() {
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState("");
   const [autoGuideActive, setAutoGuideActive] = useState(false);
+  const [guideCategoryPickerOpen, setGuideCategoryPickerOpen] = useState(false);
+  const [guideCategories, setGuideCategories] = useState<GuideCategoryId[]>(() => {
+    if (typeof window === "undefined") return ["tutto"];
+    try { return validGuideCategories(JSON.parse(localStorage.getItem(GUIDE_CATEGORY_STORAGE_KEY) || '["tutto"]')); } catch { return ["tutto"]; }
+  });
+  const [draftGuideCategories, setDraftGuideCategories] = useState<GuideCategoryId[]>(guideCategories);
   const [nearbyVideo, setNearbyVideo] = useState<NearbyVideo | null>(null);
   const [nearbyVideoLoading, setNearbyVideoLoading] = useState(false);
   const [mapAreaPlaces, setMapAreaPlaces] = useState<NearbyPlace[]>([]);
@@ -418,9 +505,11 @@ export default function Home() {
   const [narrationMode, setNarrationMode] = useState<"breve" | "completa" | "curiosita">("completa");
   const [timePortalReveal, setTimePortalReveal] = useState(52);
   const watchIdRef = useRef<number | null>(null);
+  const guideCategoriesRef = useRef<GuideCategoryId[]>(guideCategories);
   const lastSearchRef = useRef<{ lat: number; lng: number } | null>(null);
   const lastMapAreaKeyRef = useRef("");
   const mapAreaRequestRef = useRef<AbortController | null>(null);
+  const nearbyRequestRef = useRef(0);
   const announcedRef = useRef<Set<number | string>>(new Set());
   const speechRunRef = useRef(0);
 
@@ -431,6 +520,10 @@ export default function Home() {
     mapAreaRequestRef.current?.abort();
   }, []);
   useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
+  useEffect(() => {
+    guideCategoriesRef.current = guideCategories;
+    localStorage.setItem(GUIDE_CATEGORY_STORAGE_KEY, JSON.stringify(guideCategories));
+  }, [guideCategories]);
   useEffect(() => {
     const updateOnline = () => setIsOnline(navigator.onLine);
     window.addEventListener("online", updateOnline);
@@ -530,21 +623,35 @@ export default function Home() {
     } catch { setTravelConditions(null); }
   }
 
-  async function searchNearby(lat: number, lng: number) {
+  async function searchNearby(lat: number, lng: number, categories = guideCategoriesRef.current, announceClosest = true) {
+    const requestId = ++nearbyRequestRef.current;
     setNearbyLoading(true);
     setNearbyError("");
     try {
-      const iziRequest = fetch(`/.netlify/functions/izi-guide?action=nearby&lat=${lat}&lon=${lng}&radius=10000`)
+      const culturalSourcesEnabled = isCulturalSelection(categories);
+      const iziRequest = culturalSourcesEnabled ? fetch(`/.netlify/functions/izi-guide?action=nearby&lat=${lat}&lon=${lng}&radius=10000`)
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null) : Promise.resolve(null);
+      const latitudeRadius = 0.09;
+      const longitudeRadius = Math.min(0.14, latitudeRadius / Math.max(0.35, Math.cos(lat * Math.PI / 180)));
+      const osmQuery = new URLSearchParams({
+        south: String(lat - latitudeRadius), west: String(lng - longitudeRadius), north: String(lat + latitudeRadius), east: String(lng + longitudeRadius),
+        zoom: "13", layer: "tourism", categories: backendCategories(categories),
+      });
+      const osmRequest = fetch(`/.netlify/functions/osm-pois?${osmQuery}`)
         .then((response) => response.ok ? response.json() : null)
         .catch(() => null);
-      const geoUrl = new URL("https://it.wikipedia.org/w/api.php");
-      geoUrl.search = new URLSearchParams({
-        action: "query", list: "geosearch", gscoord: `${lat}|${lng}`,
-        gsradius: "10000", gslimit: "16", gsnamespace: "0", format: "json", origin: "*",
-      }).toString();
-      const response = await fetch(geoUrl);
-      if (!response.ok) throw new Error("Ricerca non disponibile");
-      const data = await response.json();
+      const wikiRequest = culturalSourcesEnabled ? (() => {
+        const geoUrl = new URL("https://it.wikipedia.org/w/api.php");
+        geoUrl.search = new URLSearchParams({
+          action: "query", list: "geosearch", gscoord: `${lat}|${lng}`,
+          gsradius: "10000", gslimit: "16", gsnamespace: "0", format: "json", origin: "*",
+        }).toString();
+        return fetch(geoUrl).then((response) => response.ok ? response.json() : { query: { geosearch: [] } }).catch(() => ({ query: { geosearch: [] } }));
+      })() : Promise.resolve({ query: { geosearch: [] } });
+      const [data, iziData, osmData] = await Promise.all([wikiRequest, iziRequest, osmRequest]) as [
+        { query?: { geosearch?: GeoSearchItem[] } }, { items?: IziNearbyItem[] } | null, { items?: OsmPoiItem[] } | null,
+      ];
       const nearby = (data.query?.geosearch ?? []) as GeoSearchItem[];
       const detailed: NearbyPlace[] = await Promise.all(nearby.slice(0, 12).map(async (item) => {
         try {
@@ -569,7 +676,6 @@ export default function Home() {
           };
         }
       }));
-      const iziData = await iziRequest as { items?: IziNearbyItem[] } | null;
       const iziPlaces: NearbyPlace[] = Array.isArray(iziData?.items) ? iziData.items.map((item) => ({
         pageid: item.id,
         source: "izi" as const,
@@ -582,25 +688,38 @@ export default function Home() {
         extract: "Audioguida originale e contenuti multimediali disponibili per questo luogo.",
         pageUrl: "https://izi.travel/it",
       })) : [];
-      const combined = [...iziPlaces, ...detailed]
+      const osmPlaces: NearbyPlace[] = Array.isArray(osmData?.items) ? osmData.items.map((item) => ({
+        pageid: item.id,
+        source: "openstreetmap" as const,
+        title: item.name,
+        lat: item.lat,
+        lng: item.lng,
+        distance: distanceKm(lat, lng, item.lat, item.lng) * 1000,
+        category: item.category,
+        extract: "Punto di interesse presente nella banca dati OpenStreetMap. Verifica dettagli, orari e indicazioni nella scheda.",
+        pageUrl: item.sourceUrl,
+      })).filter((place) => matchesGuideCategories(place, categories)) : [];
+      const combined = [...osmPlaces, ...iziPlaces, ...detailed]
+        .filter((place) => place.source === "openstreetmap" || matchesGuideCategories(place, categories))
         .filter((place, index, all) => all.findIndex((candidate) =>
           candidate.title.localeCompare(place.title, "it", { sensitivity: "base" }) === 0 &&
           distanceKm(candidate.lat, candidate.lng, place.lat, place.lng) < 0.08,
         ) === index)
         .sort((a, b) => a.distance - b.distance)
         .slice(0, 20);
+      if (requestId !== nearbyRequestRef.current) return combined;
       setNearbyPlaces(combined);
       const closest = combined[0];
-      if (closest && closest.distance <= 90 && !announcedRef.current.has(closest.pageid)) {
+      if (announceClosest && closest && closest.distance <= 90 && !announcedRef.current.has(closest.pageid)) {
         announcedRef.current.add(closest.pageid);
         void openNearby(closest);
       }
       return combined;
     } catch {
-      setNearbyError("Non riesco a caricare i luoghi vicini. Controlla la connessione e riprova.");
+      if (requestId === nearbyRequestRef.current) setNearbyError("Non riesco a caricare i luoghi vicini. Controlla la connessione e riprova.");
       return [];
     } finally {
-      setNearbyLoading(false);
+      if (requestId === nearbyRequestRef.current) setNearbyLoading(false);
     }
   }
 
@@ -719,6 +838,34 @@ export default function Home() {
     );
   }
 
+  function openGuideCategoryPicker() {
+    setDraftGuideCategories(guideCategories);
+    setGuideCategoryPickerOpen(true);
+  }
+
+  function toggleDraftGuideCategory(value: GuideCategoryId) {
+    setDraftGuideCategories((current) => value === "tutto"
+      ? ["tutto"]
+      : current.includes(value)
+        ? current.filter((item) => item !== value)
+        : [...current.filter((item) => item !== "tutto"), value]);
+  }
+
+  function applyGuideCategories() {
+    const applied = validGuideCategories(draftGuideCategories);
+    guideCategoriesRef.current = applied;
+    setGuideCategories(applied);
+    setGuideCategoryPickerOpen(false);
+    announcedRef.current.clear();
+    lastSearchRef.current = null;
+    if (userPosition) void searchNearby(userPosition.lat, userPosition.lng, applied);
+    if (mapViewport && mapLayer === "tourism") {
+      lastMapAreaKeyRef.current = "";
+      void loadMapArea(mapViewport, "tourism", applied);
+    }
+    if (!autoGuideActive) toggleAutoGuide();
+  }
+
   function locateUser() {
     if (!navigator.geolocation) { setLocationStatus("GPS non disponibile"); return; }
     setLocationStatus("Ricerca posizione…");
@@ -750,7 +897,8 @@ export default function Home() {
     try {
       const position = await getCurrentPosition();
       setUserPosition(position);
-      const found = nearbyPlaces.length ? nearbyPlaces : await searchNearby(position.lat, position.lng);
+      const smartCategories = guideCategoriesForSmartInterests(smartInterests);
+      const found = await searchNearby(position.lat, position.lng, smartCategories, false);
       void loadTravelConditions(position.lat, position.lng);
       const maxStops = batteryLow ? Math.min(4, Math.max(2, Math.floor(smartDuration / 24))) : Math.min(14, Math.max(2, Math.floor(smartDuration / 22)));
       const rainMode = travelConditions?.condition === "rain" || travelConditions?.condition === "severe";
@@ -759,6 +907,7 @@ export default function Home() {
         id: `nearby-${place.pageid}`, title: place.title, category: place.category || "Luogo turistico", lat: place.lat, lng: place.lng,
         distance: place.distance, nearby: place,
       })).map((stop) => ({ stop, score: smartInterestScore({ title: stop.title, category: stop.category, extract: stop.nearby?.extract }, smartInterests) + (rainMode && indoor.test(`${stop.category} ${stop.title}`) ? 4 : 0) - stop.distance / 4000 }))
+        .filter((item) => smartInterests.includes("tutto") || item.score > 0)
         .sort((a, b) => b.score - a.score || a.stop.distance - b.stop.distance)
         .slice(0, maxStops)
         .map((item) => item.stop)
@@ -911,7 +1060,7 @@ export default function Home() {
     }
   }
 
-  async function loadMapArea(viewport: PoiMapViewport, requestedLayer = mapLayer) {
+  async function loadMapArea(viewport: PoiMapViewport, requestedLayer = mapLayer, categories = guideCategoriesRef.current) {
     setMapViewport(viewport);
     const intersectsItaly = viewport.north >= 35.2 && viewport.south <= 47.2 && viewport.east >= 6.3 && viewport.west <= 18.9;
     if (!intersectsItaly) {
@@ -931,7 +1080,7 @@ export default function Home() {
 
     const key = [viewport.south, viewport.west, viewport.north, viewport.east]
       .map((value) => value.toFixed(3)).join(":");
-    const layerKey = `${requestedLayer}:${key}`;
+    const layerKey = `${requestedLayer}:${requestedLayer === "services" ? "servizi" : backendCategories(categories)}:${key}`;
     if (layerKey === lastMapAreaKeyRef.current) return;
     lastMapAreaKeyRef.current = layerKey;
     mapAreaRequestRef.current?.abort();
@@ -944,10 +1093,13 @@ export default function Home() {
       const query = new URLSearchParams({
         south: String(viewport.south), west: String(viewport.west), north: String(viewport.north), east: String(viewport.east), zoom: String(viewport.zoom), layer: requestedLayer,
       });
+      if (requestedLayer === "tourism") query.set("categories", backendCategories(categories));
       const response = await fetch(`/.netlify/functions/osm-pois?${query}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Ricerca non disponibile");
       const data = await response.json() as { items?: OsmPoiItem[]; truncated?: boolean };
-      const items = Array.isArray(data.items) ? data.items : [];
+      const items = (Array.isArray(data.items) ? data.items : []).filter((item) => requestedLayer === "services" || matchesGuideCategories({
+        source: "openstreetmap", title: item.name, category: item.category, extract: "",
+      }, categories));
       setMapAreaPlaces(items.map((item) => ({
         pageid: item.id,
         source: "openstreetmap" as const,
@@ -1044,7 +1196,7 @@ export default function Home() {
               <p>Dimmi quanto tempo hai: Varga Tour trova i luoghi vicini, crea il percorso e ti accompagna con audio, foto, video, orari e prenotazioni.</p>
               <div className="hero-actions">
                 <Button size="lg" onClick={() => document.getElementById("smart-planner")?.scrollIntoView({ behavior: "smooth" })} className="primary-action"><WandSparkles /> Guidami da qui</Button>
-                <Button size="lg" variant="outline" onClick={toggleAutoGuide}>{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Guida automatica</>}</Button>
+                <Button size="lg" variant="outline" onClick={autoGuideActive ? toggleAutoGuide : openGuideCategoryPicker}>{autoGuideActive ? <><Square /> Ferma guida automatica</> : <><BellRing /> Guida automatica</>}</Button>
                 <Button size="lg" variant="outline" onClick={surpriseMe}><Shuffle /> Sorprendimi</Button>
                 <label className={`camera-recognition ${cameraRecognitionLoading ? "loading" : ""}`} aria-busy={cameraRecognitionLoading}>
                   {cameraRecognitionLoading ? <LoaderCircle className="spin" size={17} /> : <Camera size={17} />}
@@ -1062,6 +1214,7 @@ export default function Home() {
                   />
                 </label>
               </div>
+              {autoGuideActive && <div className="auto-guide-summary"><span><LocateFixed /> Guida attiva · {guideCategories.includes("tutto") ? "Tutto" : `${guideCategories.length} categorie`}</span><button onClick={openGuideCategoryPicker}>Cambia categorie</button></div>}
               {cameraRecognitionMessage && <div className="camera-recognition-feedback" role="alert">{cameraRecognitionMessage}</div>}
               <div className="tour-facts"><span><LocateFixed /> avvio entro 90 m</span><span><MapPin /> tutta Italia</span><span><Headphones /> 3 racconti</span></div>
             </div>
@@ -1071,7 +1224,7 @@ export default function Home() {
             <div className="smart-planner-copy"><p className="eyebrow"><WandSparkles /> Percorso intelligente</p><h2>Quanto tempo hai?</h2><p>Il percorso parte dalla tua posizione, evita le tappe già viste e si adatta a interessi, pioggia, batteria e connessione.</p></div>
             <div className="smart-options">
               <div><small>Durata</small><div className="choice-row">{[{ value: 30, label: "30 min" }, { value: 60, label: "1 ora" }, { value: 120, label: "2 ore" }, { value: 240, label: "Mezza giornata" }, { value: 480, label: "Giornata" }].map((item) => <button key={item.value} className={smartDuration === item.value ? "selected" : ""} onClick={() => setSmartDuration(item.value)}>{item.label}</button>)}</div></div>
-              <div><small>Interessi</small><div className="choice-row">{[{ value: "tutto", label: "Tutto" }, { value: "storia", label: "Storia" }, { value: "arte", label: "Arte" }, { value: "misteri", label: "Misteri" }, { value: "natura", label: "Natura" }, { value: "cibo", label: "Cibo" }, { value: "famiglia", label: "Famiglia" }].map((item) => <button key={item.value} className={smartInterests.includes(item.value) ? "selected" : ""} onClick={() => toggleSmartInterest(item.value)}>{item.label}</button>)}</div></div>
+              <div><small>Interessi</small><div className="choice-row">{[{ value: "tutto", label: "Tutto" }, { value: "storia", label: "Storia" }, { value: "arte", label: "Arte" }, { value: "misteri", label: "Misteri" }, { value: "natura", label: "Natura" }, { value: "cibo", label: "Cibo" }, { value: "famiglia", label: "Famiglia" }, { value: "shopping", label: "Shopping" }, { value: "ristoranti", label: "Ristoranti" }, { value: "bar", label: "Bar" }, { value: "divertimento", label: "Divertimento" }, { value: "tour", label: "Tour" }, { value: "spiagge", label: "Spiagge" }, { value: "sport", label: "Sport" }, { value: "notte", label: "Vita notturna" }, { value: "adulti", label: "18+" }].map((item) => <button key={item.value} className={smartInterests.includes(item.value) ? "selected" : ""} onClick={() => toggleSmartInterest(item.value)}>{item.label}</button>)}</div></div>
               <Button size="lg" className="primary-action smart-create" onClick={() => void createSmartRoute()} disabled={smartPlannerLoading}>{smartPlannerLoading ? "Creo il percorso…" : <><Navigation /> Crea il mio percorso</>}</Button>
             </div>
             <div className="adaptive-status">
@@ -1197,6 +1350,28 @@ export default function Home() {
           <TabsTrigger value="passaporto"><Stamp /><span>Viaggio</span></TabsTrigger>
         </TabsList>
       </Tabs>
+
+      <Sheet open={guideCategoryPickerOpen} onOpenChange={setGuideCategoryPickerOpen}>
+        <SheetContent side="bottom" className="guide-category-sheet">
+          <SheetHeader>
+            <p className="eyebrow"><Compass /> Guida automatica</p>
+            <SheetTitle>Cosa vuoi scoprire?</SheetTitle>
+            <SheetDescription>Scegli una o più categorie. Puoi cambiarle in qualsiasi momento senza spegnere il GPS.</SheetDescription>
+          </SheetHeader>
+          <div className="guide-category-actions">
+            <button onClick={() => setDraftGuideCategories(["tutto"])}>Seleziona tutto</button>
+            <button onClick={() => setDraftGuideCategories([])}>Deseleziona tutto</button>
+          </div>
+          <div className="guide-category-grid" role="group" aria-label="Categorie della guida automatica">
+            {GUIDE_CATEGORIES.map((category) => {
+              const selectedCategory = draftGuideCategories.includes(category.id);
+              return <button key={category.id} type="button" className={`${selectedCategory ? "selected" : ""} ${category.id === "adulti" ? "adult-category" : ""}`} aria-pressed={selectedCategory} onClick={() => toggleDraftGuideCategory(category.id)}>{selectedCategory && <Check />}{category.label}</button>;
+            })}
+          </div>
+          <p className="adult-category-note">La categoria 18+ è separata e resta esclusa da “Tutto”. Si attiva soltanto con una scelta esplicita.</p>
+          <SheetFooter><Button size="lg" className="primary-action" onClick={applyGuideCategories} disabled={!draftGuideCategories.length}>Applica</Button></SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={Boolean(selectedNearby)} onOpenChange={(open) => { if (!open) { speechRunRef.current += 1; window.speechSynthesis?.cancel(); setSpeakingId(null); setSelectedNearby(null); setNearbyVideo(null); } }}>
         <SheetContent side="right" className="place-sheet nearby-sheet" data-poi-title={selectedNearby?.title} data-poi-lat={selectedNearby?.lat} data-poi-lng={selectedNearby?.lng}>

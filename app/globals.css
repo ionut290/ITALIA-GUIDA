@@ -91,7 +91,27 @@ h1, h2, h3, p { margin-top: 0; }
 .camera-recognition input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .camera-recognition.loading { cursor: wait; opacity: .82; }
 .camera-recognition-feedback { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.24); border-radius: 9px; color: #fff4eb; background: rgba(121,38,29,.42); font-size: 12px; line-height: 1.45; }
+.auto-guide-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; color: #f4e8de; background: rgba(255,255,255,.08); font-size: 11px; font-weight: 800; }
+.auto-guide-summary span { display: inline-flex; align-items: center; gap: 6px; }
+.auto-guide-summary svg { width: 15px; }
+.auto-guide-summary button { min-height: 34px; padding: 0 11px; border: 1px solid rgba(255,255,255,.28); border-radius: 99px; color: white; background: rgba(255,255,255,.08); font-size: 10px; font-weight: 900; cursor: pointer; }
 .spin { animation: map-status-spin .9s linear infinite; }
+
+.guide-category-sheet { left: 50% !important; bottom: 0 !important; width: min(760px, 100%) !important; max-height: min(88dvh, 820px) !important; overflow-y: auto; transform: translateX(-50%) !important; gap: 16px !important; padding: 24px max(20px, env(safe-area-inset-left)) max(20px, env(safe-area-inset-bottom)) !important; border: 1px solid #d8cabc !important; border-radius: 26px 26px 0 0 !important; background: #fffdf8 !important; }
+.guide-category-sheet [data-slot="sheet-header"] { padding: 0 42px 0 0; text-align: left; }
+.guide-category-sheet [data-slot="sheet-title"] { color: #38251f; font: 700 32px/1.05 Georgia, serif; }
+.guide-category-sheet [data-slot="sheet-description"] { margin-top: 7px; color: #74655b; line-height: 1.45; }
+.guide-category-actions { display: flex; gap: 8px; }
+.guide-category-actions button { min-height: 36px; padding: 0 12px; border: 1px solid #cebcae; border-radius: 99px; color: #704238; background: #fff8ef; font-size: 11px; font-weight: 900; cursor: pointer; }
+.guide-category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.guide-category-grid > button { min-height: 48px; display: flex; align-items: center; justify-content: flex-start; gap: 7px; padding: 10px 13px; border: 1px solid #d5c4b5; border-radius: 14px; color: #4f3d34; background: white; text-align: left; font-size: 12px; font-weight: 800; cursor: pointer; }
+.guide-category-grid > button svg { flex: 0 0 auto; width: 16px; height: 16px; }
+.guide-category-grid > button.selected { color: white; border-color: #8e2d23; background: #8e2d23; box-shadow: 0 5px 13px rgba(91,31,24,.16); }
+.guide-category-grid > button.adult-category { border-style: dashed; }
+.guide-category-grid > button.adult-category.selected { border-style: solid; background: #4c2e48; }
+.adult-category-note { margin: 0; padding: 9px 11px; border-radius: 11px; color: #655064; background: #f2eaf1; font-size: 10px; font-weight: 700; line-height: 1.45; }
+.guide-category-sheet [data-slot="sheet-footer"] { padding: 0; }
+.guide-category-sheet [data-slot="sheet-footer"] button { width: 100%; min-height: 50px; }
 
 .smart-planner { display: grid; grid-template-columns: .72fr 1.28fr; gap: 22px 34px; padding: 34px; border: 1px solid #d6c6b8; border-radius: 26px; background: #fffaf3; box-shadow: 0 16px 45px rgba(69,42,31,.08); scroll-margin-top: 90px; }
 .smart-planner-copy h2 { margin-bottom: 10px; font: 700 38px/1 Georgia, serif; }
@@ -519,6 +539,12 @@ h1, h2, h3, p { margin-top: 0; }
   .hero-copy h1 { font-size: 42px; }
   .hero-actions { flex-direction: column; }
   .hero-actions button { width: 100%; }
+  .auto-guide-summary { align-items: flex-start; flex-direction: column; }
+  .auto-guide-summary button { width: 100%; }
+  .guide-category-sheet { max-height: 92dvh !important; padding: 20px 14px max(14px, env(safe-area-inset-bottom)) !important; border-radius: 22px 22px 0 0 !important; }
+  .guide-category-sheet [data-slot="sheet-title"] { font-size: 29px; }
+  .guide-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+  .guide-category-grid > button { min-height: 52px; padding: 9px 10px; font-size: 11px; }
   .tour-facts { gap: 11px; justify-content: space-between; }
   .section-block { padding-top: 48px; }
   .section-heading { align-items: flex-start; }
