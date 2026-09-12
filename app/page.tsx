@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PoiMap, type PoiMapPoint, type PoiMapViewport } from "@/components/poi-map";
+import { VacationPlanner } from "@/components/vacation-planner";
 
 type PhotoAsset = {
   src: string;
@@ -461,6 +462,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Place | null>(null);
   const [activeTab, setActiveTab] = useState("scopri");
+  const [travelSection, setTravelSection] = useState<"vacanza" | "passaporto">("vacanza");
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [visited, setVisited] = useState<string[]>([]);
   const [currentStop, setCurrentStop] = useState(0);
@@ -1184,7 +1186,7 @@ export default function Home() {
           <TabsTrigger value="scopri"><Compass /> Scopri</TabsTrigger>
           <TabsTrigger value="tour"><Footprints /> Tour</TabsTrigger>
           <TabsTrigger value="mappa"><Map /> Mappa</TabsTrigger>
-          <TabsTrigger value="passaporto"><Stamp /> Passaporto</TabsTrigger>
+          <TabsTrigger value="passaporto"><Stamp /> Viaggio</TabsTrigger>
         </TabsList>
 
         <TabsContent value="scopri" className="content-area">
@@ -1338,9 +1340,12 @@ export default function Home() {
         </TabsContent>
 
         <TabsContent value="passaporto" className="content-area">
+          <div className="travel-section-switch" role="tablist" aria-label="Sezioni del viaggio"><button className={travelSection === "vacanza" ? "active" : ""} onClick={() => setTravelSection("vacanza")}><MapPin /> La mia vacanza</button><button className={travelSection === "passaporto" ? "active" : ""} onClick={() => setTravelSection("passaporto")}><Stamp /> Passaporto</button></div>
+          {travelSection === "vacanza" ? <VacationPlanner /> : <>
           <section className="passport-hero"><div><p className="eyebrow"><Stamp /> Il tuo viaggio</p><h1>Passaporto Varga Tour</h1><p>Ogni luogo visitato diventa un timbro e alimenta automaticamente il tuo diario di viaggio.</p></div><div className="passport-total"><strong>{visitHistory.length}</strong><span>{visitHistory.length === 1 ? "luogo visitato" : "luoghi visitati"}</span></div></section>
           <section className="passport-actions"><button onClick={() => void downloadOfflinePack()}><Download /><span><strong>{offlinePackReady ? "Pacchetto offline pronto" : "Scarica guida offline"}</strong><small>Mappa base, itinerari, racconti e immagini essenziali</small></span></button><button onClick={() => window.print()}><BookOpen /><span><strong>Salva il diario in PDF</strong><small>Usa la stampa del telefono e scegli “Salva come PDF”</small></span></button><button onClick={() => void shareText("Il mio Passaporto Varga Tour", visitHistory.map((item) => `${item.title} · ${new Date(item.visitedAt).toLocaleDateString("it-IT")}`).join("\n"))}><Share2 /><span><strong>Condividi il viaggio</strong><small>Invia tappe e ricordi ad amici e famiglia</small></span></button></section>
           <section className="passport-content"><div className="passport-heading"><div><p className="eyebrow">Diario automatico</p><h2>I tuoi timbri</h2></div>{visitHistory.length >= 3 && <span className="earned-badge"><BadgeCheck /> Esploratore Varga</span>}</div>{visitHistory.length === 0 ? <div className="passport-empty"><Stamp /><strong>Il primo timbro ti aspetta</strong><span>Inizia un tour o apri una scheda quando sei vicino al luogo e premi “Segna visitato”.</span><Button onClick={() => setActiveTab("scopri")} className="primary-action">Scopri vicino a te</Button></div> : <div className="stamp-grid">{visitHistory.map((visit, index) => <article key={`${visit.id}-${visit.visitedAt}`}><span className="stamp-number">{String(index + 1).padStart(2, "0")}</span><Stamp /><small>{visit.category}</small><strong>{visit.title}</strong><time dateTime={visit.visitedAt}>{new Date(visit.visitedAt).toLocaleString("it-IT", { dateStyle: "medium", timeStyle: "short" })}</time><a href={`https://www.google.com/maps/search/?api=1&query=${visit.lat},${visit.lng}`} target="_blank" rel="noreferrer">Rivedi sulla mappa <ExternalLink /></a></article>)}</div>}</section>
+          </>}
         </TabsContent>
 
         <TabsList className="mobile-tabs" aria-label="Navigazione mobile">

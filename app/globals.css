@@ -168,6 +168,94 @@ h1, h2, h3, p { margin-top: 0; }
 .narration-choice small { opacity: .72; font-size: 9px; }
 .narration-choice svg { flex: 0 0 auto; width: 16px; }
 
+.travel-section-switch { width: fit-content; display: flex; gap: 4px; margin: 0 0 18px; padding: 4px; border: 1px solid #d4c4b6; border-radius: 99px; background: #e9dfd2; }
+.travel-section-switch button { min-height: 39px; display: inline-flex; align-items: center; gap: 7px; padding: 0 16px; border: 0; border-radius: 99px; color: #67564c; background: transparent; font-size: 11px; font-weight: 900; cursor: pointer; }
+.travel-section-switch button svg { width: 16px; }
+.travel-section-switch button.active { color: white; background: #8e2d23; box-shadow: 0 5px 13px rgba(83,31,24,.18); }
+
+.vacation-planner { display: grid; gap: 24px; }
+.vacation-hero { min-height: 300px; display: flex; align-items: center; justify-content: space-between; gap: 34px; overflow: hidden; padding: 43px; border-radius: 28px; color: white; background: radial-gradient(circle at 88% 20%, rgba(238,174,115,.3), transparent 26%), linear-gradient(125deg,#63251e,#9b4334); box-shadow: 0 20px 50px rgba(83,35,27,.15); }
+.vacation-hero .eyebrow { color: #ffd1ad; }
+.vacation-hero h1 { margin-bottom: 13px; font: 700 clamp(42px,6vw,68px)/.95 Georgia,serif; letter-spacing: -.045em; }
+.vacation-hero p:last-child { max-width: 620px; margin: 0; color: #f5ddd2; font-size: 16px; line-height: 1.6; }
+.vacation-summary { flex: 0 0 360px; display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+.vacation-summary > span { min-width: 0; min-height: 112px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 7px; border: 1px solid rgba(255,255,255,.2); border-radius: 18px; background: rgba(255,255,255,.09); text-align: center; backdrop-filter: blur(8px); }
+.vacation-summary svg { width: 21px; color: #ffd1ad; }
+.vacation-summary strong { max-width: 100%; overflow: hidden; font: 700 22px/1.05 Georgia,serif; text-overflow: ellipsis; white-space: nowrap; }
+.vacation-summary small { color: #e9c9be; font-size: 9px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.vacation-workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hotel-form, .hotel-list-panel { align-content: start; padding: 25px; border: 1px solid #d8c9bc; border-radius: 23px; background: #fffaf4; box-shadow: 0 10px 28px rgba(68,42,31,.05); }
+.hotel-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+.vacation-section-heading { grid-column: 1 / -1; display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 4px; }
+.vacation-section-heading h2 { margin: 0; font: 700 29px/1.05 Georgia,serif; }
+.vacation-section-heading .eyebrow { margin-bottom: 7px; }
+.vacation-section-heading > button { border: 0; color: #8e2d23; background: transparent; font-size: 11px; font-weight: 900; cursor: pointer; }
+.vacation-section-heading > strong { color: #315f49; font-size: 12px; }
+.hotel-form label { display: grid; align-content: start; gap: 6px; }
+.hotel-form label.wide { grid-column: 1 / -1; }
+.hotel-form label span { color: #6d5c52; font-size: 9px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
+.hotel-form input { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #cdbdaf; border-radius: 11px; outline: none; color: #392820; background: white; font-size: 13px; }
+.hotel-form input:focus { border-color: #a84739; box-shadow: 0 0 0 3px rgba(168,71,57,.12); }
+.hotel-submit { grid-column: 1 / -1; min-height: 48px; margin-top: 3px; }
+.hotel-list-panel { display: flex; flex-direction: column; }
+.hotel-empty { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; margin-top: 10px; padding: 25px; border: 1px dashed #bbaa9b; border-radius: 17px; color: #78675d; text-align: center; }
+.hotel-empty svg { width: 35px; height: 35px; color: #9b4334; }
+.hotel-empty strong { color: #3d2b24; font: 700 20px Georgia,serif; }
+.hotel-empty span { font-size: 11px; line-height: 1.45; }
+.hotel-list { display: grid; gap: 8px; margin-top: 13px; }
+.hotel-list article { min-width: 0; display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid #e0d4c9; border-radius: 14px; background: white; }
+.hotel-number { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 50%; color: white; background: #315f49; font-size: 10px; font-weight: 900; }
+.hotel-list article > div:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hotel-list article small { color: #9a4539; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.hotel-list article strong { overflow: hidden; font: 700 17px Georgia,serif; text-overflow: ellipsis; white-space: nowrap; }
+.hotel-list article div > span { overflow: hidden; color: #76665c; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.hotel-list article b { margin-top: 3px; color: #315f49; font-size: 11px; }
+.hotel-row-actions { display: flex; gap: 4px; }
+.hotel-row-actions button { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid #d9cbc0; border-radius: 9px; color: #745c50; background: #fffaf4; cursor: pointer; }
+.hotel-row-actions button:last-child { color: #9b3329; }
+.hotel-row-actions svg { width: 14px; }
+.generate-vacation { width: 100%; min-height: 49px; margin-top: 14px; }
+.vacation-message { margin: 10px 0 0; padding: 10px 12px; border-radius: 11px; color: #5f493f; background: #efe4d8; font-size: 11px; line-height: 1.45; }
+.vacation-plan-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-top: 24px; }
+.vacation-plan-heading h2 { margin: 0; font: 700 40px/1 Georgia,serif; }
+.vacation-plan-heading button { display: inline-flex; align-items: center; gap: 6px; border: 0; color: #315f49; background: transparent; font-size: 11px; font-weight: 900; cursor: pointer; }
+.vacation-plan-heading button svg { width: 14px; }
+.vacation-result { display: grid; grid-template-columns: minmax(0,.88fr) minmax(430px,1.12fr); align-items: start; gap: 16px; }
+.vacation-days { display: grid; gap: 8px; }
+.vacation-days > article { overflow: hidden; border: 1px solid #d7c8bb; border-radius: 16px; background: #fffaf4; }
+.vacation-days > article.open { border-color: #b97768; box-shadow: 0 7px 20px rgba(70,39,29,.06); }
+.vacation-day-header { width: 100%; display: grid; grid-template-columns: 39px minmax(0,1fr) 20px; align-items: center; gap: 11px; padding: 13px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.vacation-day-header > span { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 12px; color: white; background: #8e2d23; font: 700 16px Georgia,serif; }
+.vacation-day-header > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vacation-day-header small { color: #9a4539; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.vacation-day-header strong { overflow: hidden; font: 700 17px Georgia,serif; text-overflow: ellipsis; white-space: nowrap; }
+.vacation-day-header > svg { width: 17px; color: #806c60; }
+.vacation-day-body { display: grid; gap: 8px; padding: 0 13px 13px 63px; }
+.vacation-day-body > p { margin: 0 0 3px; color: #79685e; font-size: 11px; line-height: 1.5; }
+.day-hotel, .day-stop { display: grid; grid-template-columns: 70px minmax(0,1fr) 30px; align-items: center; gap: 9px; padding: 9px; border-radius: 11px; background: white; }
+.day-hotel { grid-template-columns: 25px minmax(0,1fr); color: #315f49; background: #e5f0e9; }
+.day-hotel svg { width: 18px; }
+.day-hotel > span, .day-stop > div { min-width: 0; display: flex; flex-direction: column; }
+.day-hotel small, .day-stop small { color: #857267; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.day-hotel strong, .day-stop strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.day-stop > span { color: #9a4539; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.day-stop a { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 9px; color: white; background: #315f49; }
+.day-stop a svg { width: 14px; }
+.vacation-map-panel { position: sticky; top: 92px; overflow: hidden; border: 1px solid #d3c4b7; border-radius: 21px; background: #fffaf4; box-shadow: 0 12px 35px rgba(68,42,31,.07); }
+.vacation-map-panel > div:first-child { display: flex; align-items: center; gap: 10px; padding: 13px 15px; }
+.vacation-map-panel > div:first-child > svg { color: #9a4539; }
+.vacation-map-panel > div:first-child > span { display: flex; flex-direction: column; }
+.vacation-map-panel > div:first-child strong { font: 700 18px Georgia,serif; }
+.vacation-map-panel > div:first-child small { color: #806e63; font-size: 9px; }
+.vacation-leaflet-map { height: 560px; background: #e6dfd4; }
+.vacation-map-icon { width: 36px; height: 36px; display: grid; place-items: center; border: 3px solid white; border-radius: 50% 50% 50% 10px; color: white; background: #8e2d23; box-shadow: 0 4px 12px rgba(42,27,21,.3); font: 900 11px Arial,sans-serif; transform: rotate(-45deg); }
+.vacation-map-icon.hotel { background: #315f49; }
+.vacation-map-icon b { display: block; font: inherit; transform: rotate(45deg); }
+.vacation-map-popup { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+.vacation-map-popup small { color: #9a4539; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.vacation-map-popup strong { font: 700 15px Georgia,serif; }
+.vacation-map-popup a { margin-top: 4px; color: #315f49; font-size: 10px; font-weight: 900; }
+
 .passport-hero { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 42px; border-radius: 28px; color: white; background: linear-gradient(125deg,#315f49,#203d31); }
 .passport-hero .eyebrow { color: #b9ddc9; }
 .passport-hero h1 { margin-bottom: 10px; font: 700 clamp(40px,5vw,62px)/1 Georgia,serif; }
@@ -616,6 +704,23 @@ h1, h2, h3, p { margin-top: 0; }
   .map-layer-switch button { flex: 1; }
   .narration-choice { grid-template-columns: 1fr; }
   .time-portal-stage { height: 300px; }
+  .travel-section-switch { width: 100%; }
+  .travel-section-switch button { flex: 1; justify-content: center; padding-inline: 8px; }
+  .vacation-hero { align-items: flex-start; flex-direction: column; min-height: 0; padding: 28px 21px; }
+  .vacation-hero h1 { font-size: 45px; }
+  .vacation-summary { width: 100%; flex-basis: auto; }
+  .vacation-summary > span { min-height: 92px; }
+  .vacation-summary strong { font-size: 17px; }
+  .vacation-workspace, .vacation-result { grid-template-columns: 1fr; }
+  .hotel-form, .hotel-list-panel { padding: 19px 15px; }
+  .hotel-form { grid-template-columns: 1fr; }
+  .hotel-form label.wide, .hotel-submit, .vacation-section-heading { grid-column: auto; }
+  .vacation-section-heading h2 { font-size: 25px; }
+  .vacation-plan-heading { align-items: flex-start; flex-direction: column; }
+  .vacation-plan-heading h2 { font-size: 34px; }
+  .vacation-day-body { padding-left: 13px; }
+  .vacation-map-panel { position: static; }
+  .vacation-leaflet-map { height: 430px; }
   .passport-hero { align-items: flex-start; flex-direction: column; padding: 28px 22px; }
   .passport-total { width: 125px; height: 125px; }
   .passport-actions, .stamp-grid { grid-template-columns: 1fr; }
