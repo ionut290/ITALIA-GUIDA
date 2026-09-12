@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { BedDouble, CalendarDays, Check, ChevronDown, ChevronUp, CircleEuro, ExternalLink, Hotel, LoaderCircle, MapPinned, Navigation, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { BedDouble, CalendarDays, Check, ChevronDown, ChevronUp, CircleEuro, ExternalLink, FileUp, Hotel, LoaderCircle, MapPinned, Navigation, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VacationMap, type VacationMapPoint } from "@/components/vacation-map";
 
@@ -25,6 +25,76 @@ type OsmItem = { id: string; name: string; category: string; lat: number; lng: n
 const STORAGE_KEY = "varga-tour-my-vacation-v1";
 const EMPTY_FORM = { hotel: "", location: "", checkIn: "", checkOut: "", cost: "" };
 const MOMENTS = ["Mattina", "Pranzo", "Pomeriggio", "Sera"];
+
+const MONTHS: Record<string, number> = {
+  gennaio: 1, january: 1, febbraio: 2, february: 2, marzo: 3, march: 3, aprile: 4, april: 4,
+  maggio: 5, may: 5, giugno: 6, june: 6, luglio: 7, july: 7, agosto: 8, august: 8,
+  settembre: 9, september: 9, ottobre: 10, october: 10, novembre: 11, november: 11, dicembre: 12, december: 12,
+};
+
+function isoDate(year: number, month: number, day: number) {
+  const date = new Date(year, month - 1, day, 12);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseConfirmationDate(value: string) {
+  const source = value.toLowerCase().replace(/\s+/g, " ");
+  const iso = source.match(/\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (iso) return isoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+  const numeric = source.match(/\b(\d{1,2})[/.\-](\d{1,2})[/.\-](20\d{2})\b/);
+  if (numeric) return isoDate(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+  const dayFirst = source.match(/\b(\d{1,2})\s+(gennaio|january|febbraio|february|marzo|march|aprile|april|maggio|may|giugno|june|luglio|july|agosto|august|settembre|september|ottobre|october|novembre|november|dicembre|december)\s+(20\d{2})\b/);
+  if (dayFirst) return isoDate(Number(dayFirst[3]), MONTHS[dayFirst[2]], Number(dayFirst[1]));
+  const monthFirst = source.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b/);
+  if (monthFirst) return isoDate(Number(monthFirst[3]), MONTHS[monthFirst[1]], Number(monthFirst[2]));
+  return "";
+}
+
+function valueAfterLabel(text: string, labels: string) {
+  const match = text.match(new RegExp(`(?:${labels})\\s*[:\\-]?\\s*([^\\n]{2,140})`, "i"));
+  return match?.[1]?.trim() || "";
+}
+
+function bookingFields(rawText: string) {
+  const text = rawText.replace(/\r/g, "").replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ");
+  const hotel = valueAfterLabel(text, "prenotazione (?:confermata )?(?:presso|a)|booking (?:confirmed )?at|nome (?:della )?struttura|property name|accommodation")
+    .replace(/\s+(?:è confermata|is confirmed).*$/i, "");
+  const location = valueAfterLabel(text, "indirizzo(?: della struttura)?|address")
+    .replace(/\s+(?:telefono|phone|check[ -]?in).*$/i, "");
+  const checkInBlock = valueAfterLabel(text, "check[ -]?in|arrivo|arrival");
+  const checkOutBlock = valueAfterLabel(text, "check[ -]?out|partenza|departure");
+  const amountMatch = text.match(/(?:prezzo totale|totale|importo totale|total price|total amount)\s*[:\-]?\s*(?:€|EUR)?\s*([0-9][0-9., ]*)/i)
+    || text.match(/(?:€|EUR)\s*([0-9][0-9., ]*)/i);
+  let cost = amountMatch?.[1]?.trim().replace(/\s/g, "") || "";
+  if (cost.includes(",") && cost.includes(".")) cost = cost.lastIndexOf(",") > cost.lastIndexOf(".") ? cost.replace(/\./g, "") : cost.replace(/,/g, "");
+  else if (/^\d{1,3}(?:\.\d{3})+$/.test(cost)) cost = cost.replace(/\./g, "");
+  return { hotel, location, checkIn: parseConfirmationDate(checkInBlock), checkOut: parseConfirmationDate(checkOutBlock), cost };
+}
+
+function readableEmailText(raw: string) {
+  let text = raw.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, value: string) => String.fromCharCode(parseInt(value, 16)));
+  if (/<(?:html|body|div|p|br|table)\b/i.test(text)) {
+    const withLines = text.replace(/<(?:br\s*\/?|\/p|\/div|\/tr|\/li)>/gi, "\n");
+    text = new DOMParser().parseFromString(withLines, "text/html").body.textContent || text;
+  }
+  return text;
+}
+
+async function readBookingFile(file: File) {
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    const pdfjs = await import("pdfjs-dist");
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+    const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages: string[] = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const content = await (await pdf.getPage(pageNumber)).getTextContent();
+      pages.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
+    }
+    return pages.join("\n");
+  }
+  return readableEmailText(await file.text());
+}
 
 function storedVacation(): StoredVacation {
   if (typeof window === "undefined") return { hotels: [], plan: [], updatedAt: "" };
@@ -109,6 +179,10 @@ export function VacationPlanner() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
+  const [bookingImportOpen, setBookingImportOpen] = useState(false);
+  const [bookingText, setBookingText] = useState("");
+  const [bookingFileName, setBookingFileName] = useState("");
+  const [bookingImportLoading, setBookingImportLoading] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ hotels, plan, updatedAt: new Date().toISOString() } satisfies StoredVacation));
@@ -144,6 +218,38 @@ export function VacationPlanner() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setMessage(editingId ? "Alloggio aggiornato. Rigenera il programma." : "Alloggio aggiunto. Puoi inserirne un altro oppure creare la vacanza.");
+  }
+
+  function importBookingText(text = bookingText) {
+    const imported = bookingFields(text);
+    const found = Object.entries(imported).filter(([, value]) => Boolean(value)).map(([key]) => key);
+    if (!found.length) {
+      setMessage("Non riconosco i dati della prenotazione. Incolla il testo completo della conferma Booking oppure compila i campi manualmente.");
+      return;
+    }
+    setForm((current) => ({
+      hotel: imported.hotel || current.hotel,
+      location: imported.location || current.location,
+      checkIn: imported.checkIn || current.checkIn,
+      checkOut: imported.checkOut || current.checkOut,
+      cost: imported.cost || current.cost,
+    }));
+    setBookingImportOpen(false);
+    const missing = [!imported.hotel && "nome albergo", !imported.location && "indirizzo", !imported.checkIn && "check-in", !imported.checkOut && "check-out", !imported.cost && "costo"].filter(Boolean);
+    setMessage(missing.length ? `Prenotazione importata. Controlla e completa: ${missing.join(", ")}.` : "Prenotazione Booking importata. Controlla i dati e premi “Aggiungi albergo”.");
+  }
+
+  async function importBookingFile(file: File) {
+    setBookingImportLoading(true);
+    setBookingFileName(file.name);
+    setMessage("Leggo la conferma Booking…");
+    try {
+      const text = await readBookingFile(file);
+      setBookingText(text);
+      importBookingText(text);
+    } catch {
+      setMessage("Non riesco a leggere questo file. Prova a incollare il testo della conferma Booking nel riquadro.");
+    } finally { setBookingImportLoading(false); }
   }
 
   function editHotel(stay: HotelStay) {
@@ -227,6 +333,22 @@ export function VacationPlanner() {
     <div className="vacation-workspace">
       <form id="vacation-hotel-form" className="hotel-form" onSubmit={submitHotel}>
         <div className="vacation-section-heading"><div><p className="eyebrow"><Hotel /> I tuoi alloggi</p><h2>{editingId ? "Modifica albergo" : "Aggiungi un albergo"}</h2></div>{editingId && <button type="button" onClick={() => { setEditingId(null); setForm(EMPTY_FORM); }}>Annulla</button>}</div>
+        <div className="booking-import">
+          <button type="button" className="booking-import-toggle" onClick={() => setBookingImportOpen((open) => !open)} aria-expanded={bookingImportOpen}>
+            <span><FileUp /><span><strong>Importa prenotazione Booking</strong><small>Da PDF, e-mail o testo della conferma</small></span></span>{bookingImportOpen ? <X /> : <ChevronDown />}
+          </button>
+          {bookingImportOpen && <div className="booking-import-panel">
+            <div className="booking-safety"><ShieldCheck /><span><strong>Connessione sicura</strong><small>Non inserire la password Booking. Il file viene letto soltanto sul tuo dispositivo.</small></span></div>
+            <label className="booking-file-picker">
+              {bookingImportLoading ? <LoaderCircle className="spin" /> : <FileUp />}
+              <span><strong>{bookingFileName || "Scegli conferma Booking"}</strong><small>PDF, EML, HTML oppure TXT</small></span>
+              <input type="file" accept=".pdf,.eml,.html,.htm,.txt,application/pdf,message/rfc822,text/plain,text/html" disabled={bookingImportLoading} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void importBookingFile(file); }} />
+            </label>
+            <div className="booking-import-separator"><span>oppure</span></div>
+            <label className="booking-paste"><span>Incolla il testo della conferma</span><textarea value={bookingText} onChange={(event) => setBookingText(event.target.value)} placeholder="Copia qui il contenuto dell’e-mail ricevuta da Booking.com…" /></label>
+            <Button type="button" className="primary-action" disabled={!bookingText.trim() || bookingImportLoading} onClick={() => importBookingText()}><Check /> Compila automaticamente</Button>
+          </div>}
+        </div>
         <label><span>Nome dell’albergo</span><input required value={form.hotel} onChange={(event) => setForm({ ...form, hotel: event.target.value })} placeholder="Es. Hotel Roma" /></label>
         <label className="wide"><span>Città e indirizzo</span><input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Es. Via Nazionale 10, Roma" /></label>
         <label><span>Check-in</span><input required type="date" value={form.checkIn} onChange={(event) => setForm({ ...form, checkIn: event.target.value })} /></label>

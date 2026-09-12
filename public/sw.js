@@ -1,4 +1,4 @@
-const CACHE = "varga-tour-v15";
+const CACHE = "varga-tour-v16";
 const CORE = [
   "/", "/manifest.webmanifest", "/favicon.svg",
   "/images/ai/piazza-maggiore-rinascimento.jpg",

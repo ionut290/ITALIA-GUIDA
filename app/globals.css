@@ -196,6 +196,30 @@ h1, h2, h3, p { margin-top: 0; }
 .hotel-form label span { color: #6d5c52; font-size: 9px; font-weight: 900; letter-spacing: .07em; text-transform: uppercase; }
 .hotel-form input { width: 100%; min-height: 45px; padding: 0 12px; border: 1px solid #cdbdaf; border-radius: 11px; outline: none; color: #392820; background: white; font-size: 13px; }
 .hotel-form input:focus { border-color: #a84739; box-shadow: 0 0 0 3px rgba(168,71,57,.12); }
+.booking-import { grid-column: 1 / -1; display: grid; overflow: hidden; border: 1px solid #d4c3b5; border-radius: 15px; background: #f5ece2; }
+.booking-import-toggle { width: 100%; min-height: 61px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border: 0; color: #3d2b24; background: transparent; text-align: left; cursor: pointer; }
+.booking-import-toggle > span { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.booking-import-toggle > span > svg { flex: 0 0 auto; width: 22px; color: #8e2d23; }
+.booking-import-toggle > span > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.booking-import-toggle strong { font-size: 12px; }
+.booking-import-toggle small { color: #756359; font-size: 9px; }
+.booking-import-toggle > svg { width: 16px; color: #7d695e; }
+.booking-import-panel { display: grid; gap: 10px; padding: 0 12px 12px; }
+.booking-safety { display: grid; grid-template-columns: 23px 1fr; align-items: center; gap: 8px; padding: 10px; border-radius: 11px; color: #315f49; background: #e4efe8; }
+.booking-safety > svg { width: 19px; }
+.booking-safety > span { display: flex; flex-direction: column; gap: 2px; }
+.booking-safety strong { font-size: 10px; }
+.booking-safety small { color: #597264; font-size: 9px; line-height: 1.35; }
+.booking-file-picker { min-height: 68px; display: grid !important; grid-template-columns: 28px 1fr; align-items: center !important; gap: 10px !important; padding: 11px; border: 1px dashed #ab8f80; border-radius: 12px; color: #8e2d23; background: #fffaf4; cursor: pointer; }
+.booking-file-picker > svg { width: 23px; }
+.booking-file-picker > span { display: flex; flex-direction: column; gap: 2px; color: #3f2d25 !important; letter-spacing: 0 !important; text-transform: none !important; }
+.booking-file-picker strong { font-size: 11px; }
+.booking-file-picker small { color: #7b685d; font-size: 9px; font-weight: 600; }
+.booking-file-picker input { display: none; }
+.booking-import-separator { display: flex; align-items: center; gap: 8px; color: #8c796d; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.booking-import-separator::before, .booking-import-separator::after { height: 1px; flex: 1; content: ""; background: #d5c5b8; }
+.booking-paste textarea { min-height: 105px; resize: vertical; padding: 10px 11px; border: 1px solid #cdbdaf; border-radius: 11px; outline: none; color: #392820; background: white; font: 12px/1.45 inherit; }
+.booking-paste textarea:focus { border-color: #a84739; box-shadow: 0 0 0 3px rgba(168,71,57,.12); }
 .hotel-submit { grid-column: 1 / -1; min-height: 48px; margin-top: 3px; }
 .hotel-list-panel { display: flex; flex-direction: column; }
 .hotel-empty { min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; margin-top: 10px; padding: 25px; border: 1px dashed #bbaa9b; border-radius: 17px; color: #78675d; text-align: center; }

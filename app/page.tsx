@@ -526,9 +526,9 @@ export default function Home() {
     const hadController = Boolean(navigator.serviceWorker.controller);
     let refreshed = false;
     const refreshUpdatedApp = () => {
-      if (!hadController || refreshed || sessionStorage.getItem("varga-tour-v15-reloaded")) return;
+      if (!hadController || refreshed || sessionStorage.getItem("varga-tour-v16-reloaded")) return;
       refreshed = true;
-      sessionStorage.setItem("varga-tour-v15-reloaded", "1");
+      sessionStorage.setItem("varga-tour-v16-reloaded", "1");
       window.location.reload();
     };
     navigator.serviceWorker.addEventListener("controllerchange", refreshUpdatedApp);
