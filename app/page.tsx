@@ -521,7 +521,20 @@ export default function Home() {
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
     mapAreaRequestRef.current?.abort();
   }, []);
-  useEffect(() => { if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let refreshed = false;
+    const refreshUpdatedApp = () => {
+      if (!hadController || refreshed || sessionStorage.getItem("varga-tour-v15-reloaded")) return;
+      refreshed = true;
+      sessionStorage.setItem("varga-tour-v15-reloaded", "1");
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", refreshUpdatedApp);
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then((registration) => registration.update()).catch(() => undefined);
+    return () => navigator.serviceWorker.removeEventListener("controllerchange", refreshUpdatedApp);
+  }, []);
   useEffect(() => {
     guideCategoriesRef.current = guideCategories;
     localStorage.setItem(GUIDE_CATEGORY_STORAGE_KEY, JSON.stringify(guideCategories));
@@ -1186,7 +1199,7 @@ export default function Home() {
           <TabsTrigger value="scopri"><Compass /> Scopri</TabsTrigger>
           <TabsTrigger value="tour"><Footprints /> Tour</TabsTrigger>
           <TabsTrigger value="mappa"><Map /> Mappa</TabsTrigger>
-          <TabsTrigger value="passaporto"><Stamp /> Viaggio</TabsTrigger>
+          <TabsTrigger value="passaporto"><MapPin /> La mia vacanza</TabsTrigger>
         </TabsList>
 
         <TabsContent value="scopri" className="content-area">
@@ -1352,7 +1365,7 @@ export default function Home() {
           <TabsTrigger value="scopri"><Compass /><span>Scopri</span></TabsTrigger>
           <TabsTrigger value="tour"><Footprints /><span>Tour</span></TabsTrigger>
           <TabsTrigger value="mappa"><Map /><span>Mappa</span></TabsTrigger>
-          <TabsTrigger value="passaporto"><Stamp /><span>Viaggio</span></TabsTrigger>
+          <TabsTrigger value="passaporto"><MapPin /><span>Vacanza</span></TabsTrigger>
         </TabsList>
       </Tabs>
 
