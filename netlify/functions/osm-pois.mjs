@@ -40,8 +40,10 @@ const CATEGORY_QUERIES = {
     'nwr["name"]["office"="tourism"]',
   ],
   adulti: [
-    'nwr["name"]["amenity"~"^(nightclub|casino|bar|pub)$"]',
+    'nwr["name"]["amenity"~"^(nightclub|casino|bar|pub|stripclub|strip_club|brothel|swingerclub|swinger_club|love_hotel)$"]',
     'nwr["name"]["shop"~"^(erotic|adult)$"]',
+    'nwr["name"]["office"~"^(escort|escort_agency)$"]',
+    'nwr["name"]["adult"="yes"]',
   ],
 };
 
@@ -123,6 +125,13 @@ function categoryFor(tags) {
   if (tags.amenity === "nightclub") return "Discoteca";
   if (tags.amenity === "music_venue") return "Locale musica";
   if (tags.amenity === "casino") return "Casinò · 18+";
+  if (tags.amenity === "stripclub" || tags.amenity === "strip_club") return "Lap dance / strip club · 18+";
+  if (tags.amenity === "brothel") return "Locale per adulti · 18+";
+  if (tags.amenity === "swingerclub" || tags.amenity === "swinger_club") return "Club per adulti · 18+";
+  if (tags.amenity === "love_hotel") return "Love hotel · 18+";
+  if (tags.office === "escort" || tags.office === "escort_agency") return "Agenzia escort · 18+";
+  if (tags.amenity === "cinema" && tags.adult === "yes") return "Cinema per adulti · 18+";
+  if (tags.adult === "yes") return "Attività per adulti · 18+";
   if (tags.amenity === "bar") return "Bar";
   if (tags.amenity === "pub") return "Pub";
   if (tags.amenity === "marketplace") return "Mercato";
